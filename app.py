@@ -425,6 +425,53 @@ with tab_run:
         else:
             st.markdown(result.report)
 
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # ── Export as PDF ─────────────────────────────────────────────────────────
+        import io
+        import markdown as md
+        from xhtml2pdf import pisa
+        
+        @st.cache_data
+        def create_pdf(markdown_string: str) -> bytes:
+            html_content = md.markdown(markdown_string, extensions=['tables'])
+            styled_html = f"""
+            <html>
+                <head>
+                    <style>
+                        @page {{ margin: 2cm; }}
+                        body {{ font-family: Helvetica, Arial, sans-serif; font-size: 12pt; color: #333; }}
+                        h1 {{ color: #1f6feb; border-bottom: 2px solid #ccc; padding-bottom: 5px; }}
+                        h2, h3 {{ color: #0d1117; margin-top: 20px; }}
+                        p {{ line-height: 1.6; }}
+                        li {{ margin-bottom: 8px; }}
+                        code {{ background-color: #f6f8fa; padding: 2px 4px; border-radius: 4px; font-family: Courier, monospace; }}
+                    </style>
+                </head>
+                <body>
+                    <h1>Quorum AI Research Report</h1>
+                    <p><b>Topic</b>: {topic}</p>
+                    <hr>
+                    {html_content}
+                </body>
+            </html>
+            """
+            pdf_buf = io.BytesIO()
+            pisa.CreatePDF(styled_html, dest=pdf_buf)
+            return pdf_buf.getvalue()
+
+        col_dl, _ = st.columns([1, 4])
+        with col_dl:
+            pdf_bytes = create_pdf(result.report)
+            safe_topic = "".join(c if c.isalnum() else "_" for c in topic[:30]).strip("_")
+            st.download_button(
+                label="📄 Download as PDF",
+                data=pdf_bytes,
+                file_name=f"Quorum_{safe_topic}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+
 with tab_eval:
     st.markdown("### 📊 Evaluation Results: Baseline vs Multi-Agent")
     st.markdown("Comparing a single standard Gemini prompt against the full multi-agent pipeline.")
