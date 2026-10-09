@@ -40,11 +40,10 @@ async def generate_plan(request: PlanRequest):
     Step 1: Generates the initial plan using the Planner Agent.
     """
     try:
-        supervisor = Supervisor(request.topic)
-        active_sessions[request.topic] = supervisor
+        supervisor = Supervisor()
         
         # We run this in a thread since it's currently sync
-        plan_list = await asyncio.to_thread(supervisor.plan_research)
+        plan_list = await asyncio.to_thread(supervisor.plan_research, request.topic)
         return {"subquestions": plan_list}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -59,34 +58,45 @@ async def execute_research(request: Request):
     topic = body.get("topic")
     custom_subs = body.get("custom_subquestions", [])
     
-    supervisor = active_sessions.get(topic)
-    if not supervisor:
-        raise HTTPException(status_code=400, detail="No active planning session for this topic. Plan first.")
+    if not topic or not custom_subs:
+        raise HTTPException(status_code=400, detail="Missing topic or subquestions")
 
-    # Override the plan with user-curated subquestions
-    supervisor.plan = custom_subs
+    queue = asyncio.Queue()
+
+    def on_status_callback(msg: str):
+        # Called from synchronous threads, must be threadsafe
+        loop = asyncio.get_event_loop()
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, msg)
+        except Exception:
+            pass
 
     async def event_generator():
-        try:
-            # supervisor.execute_research_async() is a sync generator yielding events
-            # We wrap it to yield SSE formatted data
-            for event in supervisor.execute_research_async():
-                yield {
-                    "event": "agent_log",
-                    "data": json.dumps(event)
-                }
-                await asyncio.sleep(0.01) # Yield control to let stream flush
-            
-            # When done, clear session
-            if topic in active_sessions:
-                del active_sessions[topic]
+        supervisor = Supervisor(on_status=on_status_callback)
+        loop = asyncio.get_running_loop()
 
-        except Exception as e:
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": str(e)})
-            }
-            
+        def run_sync():
+            try:
+                res = supervisor.execute_research_async(topic, custom_subs)
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "done", "report": res.report})
+            except Exception as e:
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "error": str(e)})
+
+        # Start execution in a background thread
+        loop.run_in_executor(None, run_sync)
+
+        while True:
+            msg = await queue.get()
+            if isinstance(msg, dict):
+                if msg.get("type") == "done":
+                    yield {"event": "agent_log", "data": json.dumps({"report": msg["report"]})}
+                    break
+                elif msg.get("type") == "error":
+                    yield {"event": "error", "data": json.dumps({"error": msg["error"]})}
+                    break
+            else:
+                yield {"event": "agent_log", "data": json.dumps({"agent": "System", "status": msg})}
+                
     return EventSourceResponse(event_generator())
 
 @app.get("/api/history")
