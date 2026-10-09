@@ -51,6 +51,10 @@ submitBtn.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ topic })
     });
+    if (!planRes.ok) {
+      const errorData = await planRes.json();
+      throw new Error(errorData.detail || 'Plan generation failed on backend');
+    }
     const planData = await planRes.json();
     
     streamItem.innerText = `✅ Plan generated with ${planData.subquestions.length} sub-questions. Starting execution...`;

@@ -4,6 +4,10 @@ from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 import asyncio
 import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from src.orchestrator.supervisor import Supervisor
 from src.memory.db import get_recent_reports
