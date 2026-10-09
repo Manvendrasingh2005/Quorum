@@ -78,7 +78,12 @@ async def execute_research(request: Request):
         def run_sync():
             try:
                 res = supervisor.execute_research_async(topic, custom_subs)
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "done", "report": res.report})
+                loop.call_soon_threadsafe(queue.put_nowait, {
+                    "type": "done", 
+                    "report": res.report,
+                    "metrics": res.metrics,
+                    "findings": [f.model_dump() for f in res.findings]
+                })
             except Exception as e:
                 loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "error": str(e)})
 
@@ -89,7 +94,7 @@ async def execute_research(request: Request):
             msg = await queue.get()
             if isinstance(msg, dict):
                 if msg.get("type") == "done":
-                    yield {"event": "agent_log", "data": json.dumps({"report": msg["report"]})}
+                    yield {"event": "agent_log", "data": json.dumps({"report": msg["report"], "metrics": msg["metrics"], "findings": msg["findings"]})}
                     break
                 elif msg.get("type") == "error":
                     yield {"event": "error", "data": json.dumps({"error": msg["error"]})}
@@ -107,6 +112,49 @@ async def get_history():
         return {"history": records}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class PDFRequest(BaseModel):
+    topic: str
+    markdown_report: str
+
+@app.post("/api/export_pdf")
+async def export_pdf(request: PDFRequest):
+    """Converts a markdown report string into a PDF and returns it."""
+    import io
+    import markdown as md
+    from xhtml2pdf import pisa
+    from fastapi.responses import Response
+
+    html_content = md.markdown(request.markdown_report, extensions=['tables'])
+    styled_html = f"""
+    <html>
+        <head>
+            <style>
+                @page {{ margin: 2cm; }}
+                body {{ font-family: Helvetica, Arial, sans-serif; font-size: 12pt; color: #333; }}
+                h1 {{ color: #1f6feb; border-bottom: 2px solid #ccc; padding-bottom: 5px; }}
+                h2, h3 {{ color: #0d1117; margin-top: 20px; }}
+                p {{ line-height: 1.6; }}
+                li {{ margin-bottom: 8px; }}
+                code {{ background-color: #f6f8fa; padding: 2px 4px; border-radius: 4px; font-family: Courier, monospace; }}
+            </style>
+        </head>
+        <body>
+            <h1>Quorum AI Research Report</h1>
+            <p><b>Topic</b>: {request.topic}</p>
+            <hr>
+            {html_content}
+        </body>
+    </html>
+    """
+    pdf_buf = io.BytesIO()
+    pisa.CreatePDF(styled_html, dest=pdf_buf)
+    
+    return Response(
+        content=pdf_buf.getvalue(), 
+        media_type="application/pdf", 
+        headers={"Content-Disposition": f"attachment; filename=Quorum_Report.pdf"}
+    )
 
 if __name__ == "__main__":
     import uvicorn

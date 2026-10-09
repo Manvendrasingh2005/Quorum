@@ -67,7 +67,7 @@
       </div>
 
       <!-- Suggestions -->
-      <div class="suggestions-section">
+      <div id="suggestionsSection" class="suggestions-section">
         <p class="suggestions-title">Not sure where to start? Try these <span>🔀</span></p>
         
         <div class="pill-row">
@@ -83,11 +83,28 @@
         </div>
       </div>
       
+      <!-- HITL Plan Review Section (Hidden initially) -->
+      <div id="hitlContainer" class="output-container" style="display: none;">
+        <h3 style="margin-bottom: 20px;">📝 Review Research Plan</h3>
+        <p style="color: #64748b; margin-bottom: 15px; font-size: 14px;">The AI Planner has decomposed your topic. Edit the sub-questions before executing.</p>
+        <div id="planList"></div>
+        <button id="executeBtn" class="primary-btn" style="width: 100%; padding: 12px; margin-top: 20px; font-weight: 600;">🚀 Approve & Start Research</button>
+      </div>
+
       <!-- Progress Output Container (Hidden initially) -->
       <div id="outputContainer" class="output-container" style="display: none;">
-        <h3 style="margin-bottom: 20px;">Agent Feed</h3>
+        <h3 style="margin-bottom: 20px;">📋 Agent Feed</h3>
         <div id="agentStream"></div>
+      </div>
+
+      <!-- Final Report & Metrics Container (Hidden initially) -->
+      <div id="reportContainer" class="output-container" style="display: none;">
+        <h3 style="margin-bottom: 20px;">📊 Run Metrics</h3>
+        <div id="metricsDashboard" class="metrics-dashboard"></div>
+        
+        <h3 style="margin-top: 40px; margin-bottom: 20px;">📝 Final Research Report</h3>
         <div id="finalReport" class="final-report"></div>
+        <button id="dlPdfBtn" class="primary-btn" style="margin-top: 30px; display: none;">📄 Download PDF</button>
       </div>
 
       <!-- History Section (Loaded from DB) -->
