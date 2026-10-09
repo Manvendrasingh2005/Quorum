@@ -101,15 +101,21 @@ executeBtn.addEventListener('click', async () => {
         
         const reader = execution.body.getReader();
         const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+        
         while (true) {
             const { value, done } = await reader.read();
             if (done) break;
-            const chunks = decoder.decode(value).split('\\n\\n');
+            
+            buffer += decoder.decode(value, { stream: true });
+            const chunks = buffer.split('\n\n');
+            buffer = chunks.pop(); // Keep the incomplete chunk in the buffer
 
             chunks.forEach(part => {
-                if (part.startsWith('data: ')) {
+                const dataMatch = part.match(/data:\s*(.*)/);
+                if (dataMatch) {
                     try {
-                        const payload = JSON.parse(part.replace('data: ', '').trim());
+                        const payload = JSON.parse(dataMatch[1].trim());
                         
                         // Parse Agent Log
                         if (payload.agent || payload.status) {
@@ -158,7 +164,9 @@ executeBtn.addEventListener('click', async () => {
                         if (payload.error) {
                             const errCard = document.createElement('div'); errCard.className = 'agent-card agent-critic-reject'; errCard.innerText = `Error: ${payload.error}`; agentStream.appendChild(errCard);
                         }
-                    } catch(e) {}
+                    } catch(e) {
+                         // silently ignore half-JSONs if split happened strangely
+                    }
                 }
             });
         }
