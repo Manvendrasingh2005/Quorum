@@ -4,8 +4,13 @@ tavily-python>=0.5.0
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 
+# Memory / Persistence
+chromadb>=0.4.0
+sqlalchemy>=2.0.0
+
 # UI
 streamlit>=1.30.0
+pandas>=2.0.0
 
 # Already in stdlib
 # asyncio, concurrent.futures, json, time, re, os
