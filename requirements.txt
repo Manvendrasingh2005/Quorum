@@ -18,5 +18,12 @@ requests>=2.31.0
 xhtml2pdf>=0.2.11
 markdown>=3.5.0
 
+# API Backend
+fastapi>=0.100.0
+uvicorn>=0.23.0
+sse-starlette>=1.6.0
+xhtml2pdf>=0.2.11
+markdown>=3.5.0
+
 # Already in stdlib
 # asyncio, concurrent.futures, json, time, re, os

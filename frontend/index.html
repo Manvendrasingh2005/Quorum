@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quorum - Premium UI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <!-- Top Navbar -->
+    <nav class="top-nav">
+      <div class="nav-left">
+        <button class="btn-home">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M4 13h6V4H4v9zm8 9h6v-9h-6v9zm-8 0h6v-6H4v6zm8-18v6h6V4h-6z"/></svg> 
+          Home
+        </button>
+        <span class="nav-dot">•</span>
+        <span class="nav-title">hi</span>
+        <div class="nav-divider"></div>
+      </div>
+      <div class="nav-right">
+        <div class="credits">
+          <span class="credit-icon">✦</span>
+          <span>8.45</span>
+        </div>
+        <div class="avatar">M</div>
+      </div>
+    </nav>
+
+    <!-- Cloud Sky Hero Section -->
+    <div class="hero-bg"></div>
+
+    <main class="main-container">
+      <h1 class="hero-title">You have received 10 free credits for your first prompt</h1>
+
+      <!-- Input Section with Tabs -->
+      <div class="input-container">
+        
+        <!-- Tabs floating above -->
+        <div class="tabs-container">
+          <button class="tab active">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            Research plan
+          </button>
+          <button class="tab inactive">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+            Deep dive
+          </button>
+        </div>
+
+        <!-- The actual text box box -->
+        <div class="box-wrapper">
+          <textarea id="promptInput" placeholder="Describe your topic we will research it for you.."></textarea>
+          
+          <div class="box-footer">
+            <button class="icon-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+            
+            <div class="footer-right">
+              <button class="icon-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+              </button>
+              <button id="submitBtn" class="submit-btn" disabled>
+                <svg width="18" height="18" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Suggestions -->
+      <div class="suggestions-section">
+        <p class="suggestions-title">Not sure where to start? Try these <span>🔀</span></p>
+        
+        <div class="pill-row">
+          <div class="pill">
+            <div class="gradient-dot green"></div> "What are the biggest AI funding rounds in 2024"
+          </div>
+          <div class="pill">
+            <div class="gradient-dot teal"></div> "Latest advancements in solid state batteries"
+          </div>
+          <div class="pill">
+            <div class="gradient-dot purple"></div> "Future trajectories of humanoid enterprise robotics"
+          </div>
+        </div>
+      </div>
+      
+      <!-- Progress Output Container (Hidden initially) -->
+      <div id="outputContainer" class="output-container" style="display: none;">
+        <h3 style="margin-bottom: 20px;">Agent Feed</h3>
+        <div id="agentStream"></div>
+        <div id="finalReport" class="final-report"></div>
+      </div>
+
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
