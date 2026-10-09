@@ -1,4 +1,4 @@
-# Multi-Agent Research System (MARS) 🤖
+# Quorum 🤖
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.32+-red.svg)
