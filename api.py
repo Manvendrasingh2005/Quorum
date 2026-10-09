@@ -62,10 +62,10 @@ async def execute_research(request: Request):
         raise HTTPException(status_code=400, detail="Missing topic or subquestions")
 
     queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
 
     def on_status_callback(msg: str):
-        # Called from synchronous threads, must be threadsafe
-        loop = asyncio.get_event_loop()
+        # Called from synchronous threads, must use the captured FastAPI main event loop
         try:
             loop.call_soon_threadsafe(queue.put_nowait, msg)
         except Exception:
@@ -73,7 +73,6 @@ async def execute_research(request: Request):
 
     async def event_generator():
         supervisor = Supervisor(on_status=on_status_callback)
-        loop = asyncio.get_running_loop()
 
         def run_sync():
             try:
