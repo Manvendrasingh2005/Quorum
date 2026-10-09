@@ -10,6 +10,7 @@ Run: streamlit run app.py
 import streamlit as st
 import json
 import pandas as pd
+import time
 from pathlib import Path
 from src.orchestrator.supervisor import Supervisor
 from src.agents.base import metrics
@@ -17,7 +18,7 @@ from src.memory import get_recent_reports
 
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Multi-Agent Research System",
+    page_title="Quorum",
     page_icon="🤖",
     layout="wide",
 )
@@ -25,96 +26,149 @@ st.set_page_config(
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
 
+    /* Global Body and Font */
+    html, body, [class*="css"]  {
+        font-family: 'Outfit', sans-serif !important;
+    }
+    
+    /* Hide Streamlit Junk */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+
+    /* Background and Glassmorphism */
     .stApp {
-        font-family: 'Inter', sans-serif;
+        background: radial-gradient(circle at 15% 50%, #0d1117, #010409);
+        color: #c9d1d9;
+    }
+    
+    /* Push content up to remove empty space */
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
+    }
+
+    /* Style Text Input (Search Bar) */
+    .stTextInput > div > div > input {
+        border-radius: 20px;
+        border: 1px solid #30363d;
+        background-color: rgba(22, 27, 34, 0.7);
+        color: #f0f6fc;
+        padding: 12px 20px;
+        font-size: 16px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    .stTextInput > div > div > input:focus {
+        border-color: #58a6ff;
+        box-shadow: 0 0 15px rgba(88, 166, 255, 0.3);
+    }
+    
+    /* Style Primary Button */
+    .stButton > button {
+        background: linear-gradient(135deg, #6e40c9 0%, #1f6feb 100%);
+        color: white;
+        border: none;
+        border-radius: 20px;
+        font-size: 16px;
+        font-weight: 600;
+        padding: 2px 24px;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(31, 111, 235, 0.4);
+        color: white;
+        border: none;
+    }
+    
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: rgba(13, 17, 23, 0.8) !important;
+        backdrop-filter: blur(10px) !important;
+        border-right: 1px solid #30363d;
+    }
+
+    /* Agent log entry animations */
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
     }
 
     .agent-card {
-        padding: 12px 16px;
-        border-radius: 10px;
-        margin: 6px 0;
-        font-size: 14px;
-        line-height: 1.5;
-    }
-
-    .agent-planner {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        border-left: 4px solid #00d2ff;
-        color: #e0e0e0;
-    }
-
-    .agent-researcher {
-        background: linear-gradient(135deg, #1a2e1a 0%, #163e22 100%);
-        border-left: 4px solid #00ff88;
-        color: #e0e0e0;
-    }
-
-    .agent-critic-approve {
-        background: linear-gradient(135deg, #1a2e2e 0%, #163e3e 100%);
-        border-left: 4px solid #00ffcc;
-        color: #e0e0e0;
-    }
-
-    .agent-critic-reject {
-        background: linear-gradient(135deg, #2e1a1a 0%, #3e1616 100%);
-        border-left: 4px solid #ff4444;
-        color: #e0e0e0;
-    }
-
-    .agent-writer {
-        background: linear-gradient(135deg, #2e2e1a 0%, #3e3616 100%);
-        border-left: 4px solid #ffcc00;
-        color: #e0e0e0;
-    }
-
-    .agent-supervisor {
-        background: linear-gradient(135deg, #2e1a2e 0%, #3e163e 100%);
-        border-left: 4px solid #cc00ff;
-        color: #e0e0e0;
-    }
-
-    .metric-card {
-        background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 100%);
-        border: 1px solid #333;
+        padding: 14px 18px;
         border-radius: 12px;
-        padding: 16px;
+        margin: 8px 0;
+        font-size: 15px;
+        line-height: 1.6;
+        animation: fadeInUp 0.4s ease forwards;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        backdrop-filter: blur(5px);
+    }
+
+    /* specific agent card styles... */
+    .agent-planner { background: rgba(0, 210, 255, 0.1); border-left: 4px solid #00d2ff; color: #c9d1d9; }
+    .agent-researcher { background: rgba(0, 255, 136, 0.1); border-left: 4px solid #00ff88; color: #c9d1d9; }
+    .agent-critic-approve { background: rgba(0, 255, 204, 0.1); border-left: 4px solid #00ffcc; color: #c9d1d9; }
+    .agent-critic-reject { background: rgba(255, 68, 68, 0.1); border-left: 4px solid #ff4444; color: #ffcccc; }
+    .agent-writer { background: rgba(255, 204, 0, 0.1); border-left: 4px solid #ffcc00; color: #c9d1d9; }
+    .agent-supervisor { background: rgba(204, 0, 255, 0.1); border-left: 4px solid #cc00ff; color: #c9d1d9; }
+
+    /* Metric Cards */
+    .metric-card {
+        background: rgba(22, 27, 34, 0.6);
+        border: 1px solid #30363d;
+        border-radius: 16px;
+        padding: 20px;
         text-align: center;
+        transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+        backdrop-filter: blur(5px);
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+        border-color: #58a6ff;
     }
 
     .metric-value {
-        font-size: 28px;
+        font-size: 32px;
         font-weight: 700;
-        color: #00d2ff;
+        background: linear-gradient(135deg, #58a6ff 0%, #3fb950 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 4px;
     }
 
     .metric-label {
-        font-size: 12px;
-        color: #888;
+        font-size: 11px;
+        color: #8b949e;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 1.5px;
+        font-weight: 600;
     }
 
+    /* Critic Score Bars */
     .score-bar {
-        height: 8px;
-        border-radius: 4px;
-        background: #333;
+        height: 6px;
+        border-radius: 3px;
+        background: #21262d;
         overflow: hidden;
-        margin: 4px 0;
+        margin: 6px 0;
     }
-
     .score-fill {
         height: 100%;
-        border-radius: 4px;
-        transition: width 0.3s ease;
+        border-radius: 3px;
+        transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
     }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown("# 🤖 Multi-Agent Research System")
+st.markdown("# 🤖 Quorum")
 st.markdown(
     "*Four AI agents — **Planner**, **Researcher**, **Critic**, **Writer** — "
     "collaborate to produce quality-reviewed research reports.*"
@@ -197,6 +251,8 @@ with tab_run:
     if run_button:
         st.session_state.workflow_stage = "planning"
         st.session_state.topic = topic
+        if "report_streamed" in st.session_state:
+            del st.session_state["report_streamed"]
 
     # ── Execution ─────────────────────────────────────────────────────────────────
     if st.session_state.workflow_stage == "planning":
@@ -358,7 +414,16 @@ with tab_run:
         # ── Final Report ──────────────────────────────────────────────────────────
         st.markdown("---")
         st.markdown("### 📝 Research Report")
-        st.markdown(result.report)
+        
+        if "report_streamed" not in st.session_state:
+            def stream_data():
+                for word in result.report.split(" "):
+                    yield word + " "
+                    time.sleep(0.02)
+            st.write_stream(stream_data)
+            st.session_state.report_streamed = True
+        else:
+            st.markdown(result.report)
 
 with tab_eval:
     st.markdown("### 📊 Evaluation Results: Baseline vs Multi-Agent")
