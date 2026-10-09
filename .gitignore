@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+env/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints
+
+# Project specific
+.chroma_db/
+research_history.db
+evaluation_results.json
+
+# VS Code
+.vscode/
+
+# OS Files
+.DS_Store
+Thumbs.db
