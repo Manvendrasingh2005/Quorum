@@ -40,8 +40,8 @@ st.markdown("""
 
     /* Background and Glassmorphism */
     .stApp {
-        background: radial-gradient(circle at 15% 50%, #0d1117, #010409);
-        color: #c9d1d9;
+        background: linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 100%);
+        color: #1a1a2e;
     }
     
     /* Push content up to remove empty space */
@@ -53,22 +53,22 @@ st.markdown("""
     /* Style Text Input (Search Bar) */
     .stTextInput > div > div > input {
         border-radius: 20px;
-        border: 1px solid #30363d;
-        background-color: rgba(22, 27, 34, 0.7);
-        color: #f0f6fc;
+        border: 1px solid #cbd5e1;
+        background-color: rgba(255, 255, 255, 0.9);
+        color: #1f2937;
         padding: 12px 20px;
         font-size: 16px;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
     .stTextInput > div > div > input:focus {
-        border-color: #58a6ff;
-        box-shadow: 0 0 15px rgba(88, 166, 255, 0.3);
+        border-color: #3b82f6;
+        box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
     }
     
     /* Style Primary Button */
     .stButton > button {
-        background: linear-gradient(135deg, #6e40c9 0%, #1f6feb 100%);
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
         color: white;
         border: none;
         border-radius: 20px;
@@ -79,16 +79,16 @@ st.markdown("""
     }
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(31, 111, 235, 0.4);
+        box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
         color: white;
         border: none;
     }
     
     /* Sidebar */
     [data-testid="stSidebar"] {
-        background: rgba(13, 17, 23, 0.8) !important;
+        background: rgba(255, 255, 255, 0.75) !important;
         backdrop-filter: blur(10px) !important;
-        border-right: 1px solid #30363d;
+        border-right: 1px solid #e2e8f0;
     }
 
     /* Agent log entry animations */
@@ -104,22 +104,23 @@ st.markdown("""
         font-size: 15px;
         line-height: 1.6;
         animation: fadeInUp 0.4s ease forwards;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         backdrop-filter: blur(5px);
+        color: #1f2937;
     }
 
     /* specific agent card styles... */
-    .agent-planner { background: rgba(0, 210, 255, 0.1); border-left: 4px solid #00d2ff; color: #c9d1d9; }
-    .agent-researcher { background: rgba(0, 255, 136, 0.1); border-left: 4px solid #00ff88; color: #c9d1d9; }
-    .agent-critic-approve { background: rgba(0, 255, 204, 0.1); border-left: 4px solid #00ffcc; color: #c9d1d9; }
-    .agent-critic-reject { background: rgba(255, 68, 68, 0.1); border-left: 4px solid #ff4444; color: #ffcccc; }
-    .agent-writer { background: rgba(255, 204, 0, 0.1); border-left: 4px solid #ffcc00; color: #c9d1d9; }
-    .agent-supervisor { background: rgba(204, 0, 255, 0.1); border-left: 4px solid #cc00ff; color: #c9d1d9; }
+    .agent-planner { background: rgba(59, 130, 246, 0.15); border-left: 4px solid #3b82f6; }
+    .agent-researcher { background: rgba(16, 185, 129, 0.15); border-left: 4px solid #10b981; }
+    .agent-critic-approve { background: rgba(5, 150, 105, 0.15); border-left: 4px solid #059669; }
+    .agent-critic-reject { background: rgba(239, 68, 68, 0.15); border-left: 4px solid #ef4444; color: #7f1d1d; }
+    .agent-writer { background: rgba(245, 158, 11, 0.15); border-left: 4px solid #f59e0b; }
+    .agent-supervisor { background: rgba(139, 92, 246, 0.15); border-left: 4px solid #8b5cf6; }
 
     /* Metric Cards */
     .metric-card {
-        background: rgba(22, 27, 34, 0.6);
-        border: 1px solid #30363d;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid #e2e8f0;
         border-radius: 16px;
         padding: 20px;
         text-align: center;
@@ -129,14 +130,14 @@ st.markdown("""
     
     .metric-card:hover {
         transform: translateY(-5px);
-        box-shadow: 0 10px 20px rgba(0,0,0,0.4);
-        border-color: #58a6ff;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.08);
+        border-color: #3b82f6;
     }
 
     .metric-value {
         font-size: 32px;
         font-weight: 700;
-        background: linear-gradient(135deg, #58a6ff 0%, #3fb950 100%);
+        background: linear-gradient(135deg, #3b82f6 0%, #10b981 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         margin-bottom: 4px;
@@ -144,7 +145,7 @@ st.markdown("""
 
     .metric-label {
         font-size: 11px;
-        color: #8b949e;
+        color: #64748b;
         text-transform: uppercase;
         letter-spacing: 1.5px;
         font-weight: 600;
@@ -154,7 +155,7 @@ st.markdown("""
     .score-bar {
         height: 6px;
         border-radius: 3px;
-        background: #21262d;
+        background: #e2e8f0;
         overflow: hidden;
         margin: 6px 0;
     }
@@ -193,39 +194,6 @@ with st.sidebar:
                 st.markdown(r['report_text'][:300] + "...")
 
 with tab_run:
-    # ── Architecture Diagram (collapsed) ─────────────────────────────────────────
-    with st.expander("📐 System Architecture", expanded=False):
-        st.markdown("""
-        ```
-        ┌─────────────────────────────────────────────────┐
-        │                  SUPERVISOR                      │
-        │              (Pure Python — no LLM)              │
-        ├─────────────────────────────────────────────────┤
-        │                                                  │
-        │   User Query                                     │
-        │       │                                          │
-        │       ▼                                          │
-        │   🧠 PLANNER AGENT                               │
-        │       │  Decomposes into sub-questions            │
-        │       ▼                                          │
-        │   🔍 RESEARCHER AGENTS (concurrent)              │
-        │       │  Web search + draft answers               │
-        │       ▼                                          │
-        │   ⚖️  CRITIC AGENT                                │
-        │       │  Review + score + approve/reject           │
-        │       │                                          │
-        │       ├── ✅ Approved → Writer                    │
-        │       └── ❌ Rejected → Back to Researcher        │
-        │                        (with specific feedback)   │
-        │       ▼                                          │
-        │   ✍️  WRITER AGENT                                │
-        │       │  Synthesize final report                  │
-        │       ▼                                          │
-        │   📊 Final Report + Metrics                      │
-        └─────────────────────────────────────────────────┘
-        ```
-        """)
-
     st.markdown("---")
 
     # ── Input ─────────────────────────────────────────────────────────────────────
