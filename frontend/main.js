@@ -37,6 +37,7 @@ submitBtn.addEventListener('click', async () => {
   agentStream.innerHTML = '';
   finalReport.innerHTML = '';
   document.querySelector('.suggestions-section').style.display = 'none';
+  document.getElementById('historySection').style.display = 'none';
   
   // Submit Plan
   const streamItem = document.createElement('div');
@@ -101,3 +102,32 @@ submitBtn.addEventListener('click', async () => {
     agentStream.appendChild(errElem);
   }
 });
+
+// Load History
+async function loadHistory() {
+  const historySection = document.getElementById('historySection');
+  const historyGrid = document.getElementById('historyGrid');
+  try {
+    const res = await fetch('http://127.0.0.1:8000/api/history');
+    const data = await res.json();
+    if (data.history && data.history.length > 0) {
+      historySection.style.display = 'block';
+      data.history.forEach(item => {
+         const card = document.createElement('div');
+         card.className = 'history-card';
+         card.innerHTML = `<h4>${item.topic}</h4><p class="history-date">${new Date(item.created_at).toLocaleDateString()}</p>`;
+         card.onclick = () => {
+            promptInput.value = item.topic;
+            submitBtn.classList.add('enabled');
+            submitBtn.removeAttribute('disabled');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+         };
+         historyGrid.appendChild(card);
+      });
+    }
+  } catch(e) {
+    console.error("Could not load history", e);
+  }
+}
+
+loadHistory();

@@ -12,19 +12,14 @@
     <nav class="top-nav">
       <div class="nav-left">
         <button class="btn-home">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M4 13h6V4H4v9zm8 9h6v-9h-6v9zm-8 0h6v-6H4v6zm8-18v6h6V4h-6z"/></svg> 
-          Home
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 22h20L12 2z"/></svg> 
+          Quorum
         </button>
-        <span class="nav-dot">•</span>
-        <span class="nav-title">hi</span>
-        <div class="nav-divider"></div>
       </div>
       <div class="nav-right">
-        <div class="credits">
-          <span class="credit-icon">✦</span>
-          <span>8.45</span>
-        </div>
-        <div class="avatar">M</div>
+        <button class="btn-home" style="background: transparent; color: white; border: 1px solid rgba(255,255,255,0.3);">
+          History
+        </button>
       </div>
     </nav>
 
@@ -32,7 +27,7 @@
     <div class="hero-bg"></div>
 
     <main class="main-container">
-      <h1 class="hero-title">You have received 10 free credits for your first prompt</h1>
+      <h1 class="hero-title">Multi-Agent AI Research System</h1>
 
       <!-- Input Section with Tabs -->
       <div class="input-container">
@@ -41,17 +36,17 @@
         <div class="tabs-container">
           <button class="tab active">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-            Research plan
+            Comprehensive Report
           </button>
           <button class="tab inactive">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
-            Deep dive
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            Literature Review
           </button>
         </div>
 
         <!-- The actual text box box -->
         <div class="box-wrapper">
-          <textarea id="promptInput" placeholder="Describe your topic we will research it for you.."></textarea>
+          <textarea id="promptInput" placeholder="What would you like to research today?"></textarea>
           
           <div class="box-footer">
             <button class="icon-btn">
@@ -77,13 +72,13 @@
         
         <div class="pill-row">
           <div class="pill">
-            <div class="gradient-dot green"></div> "What are the biggest AI funding rounds in 2024"
+            <div class="gradient-dot green"></div> What are the biggest AI funding rounds in 2024?
           </div>
           <div class="pill">
-            <div class="gradient-dot teal"></div> "Latest advancements in solid state batteries"
+            <div class="gradient-dot teal"></div> Latest advancements in solid state batteries
           </div>
           <div class="pill">
-            <div class="gradient-dot purple"></div> "Future trajectories of humanoid enterprise robotics"
+            <div class="gradient-dot purple"></div> Analysis of the current real estate market
           </div>
         </div>
       </div>
@@ -93,6 +88,12 @@
         <h3 style="margin-bottom: 20px;">Agent Feed</h3>
         <div id="agentStream"></div>
         <div id="finalReport" class="final-report"></div>
+      </div>
+
+      <!-- History Section (Loaded from DB) -->
+      <div id="historySection" class="history-section" style="margin-top: 60px; width: 100%; max-width: 900px; display: none;">
+        <h2 style="font-size: 24px; color: #1a1a1a; margin-bottom: 20px;">Recent Research</h2>
+        <div id="historyGrid" class="history-grid"></div>
       </div>
 
     </main>
