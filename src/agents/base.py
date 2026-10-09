@@ -21,7 +21,13 @@ from src.config import (
     MODEL_ATTEMPTS,
     MAX_SCHEMA_RETRIES,
 )
-from src.tools.search import SEARCH_DECLARATION, TOOL_FUNCTIONS
+from src.tools.search import SEARCH_DECLARATION, search_web
+from src.tools.pdf import PDF_DECLARATION, read_pdf_url
+
+TOOL_FUNCTIONS = {
+    "search_web": search_web,
+    "read_pdf_url": read_pdf_url,
+}
 
 
 # ── Shared Gemini Client ──────────────────────────────────────────────────────
@@ -131,7 +137,7 @@ class BaseAgent:
         """Build the GenerateContentConfig for this agent's role."""
         if self.uses_tools:
             cfg = types.GenerateContentConfig(
-                tools=[types.Tool(function_declarations=[SEARCH_DECLARATION])],
+                tools=[types.Tool(function_declarations=[SEARCH_DECLARATION, PDF_DECLARATION])],
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(
                     disable=True
                 ),
@@ -201,10 +207,12 @@ class BaseAgent:
 
             result_parts = []
             for fc in response.function_calls:
-                print(f"    [{self.role}] 🔍 searching: {dict(fc.args)}")
+                # GenAI sometimes returns None for args instead of an empty dict
+                args = fc.args or {}
+                print(f"    [{self.role}] 🔍 searching: {dict(args)}")
                 metrics.search_calls += 1
                 try:
-                    output = TOOL_FUNCTIONS[fc.name](**fc.args)
+                    output = TOOL_FUNCTIONS[fc.name](**args)
                 except Exception as e:
                     output = f"Tool error: {e}"
                 result_parts.append(

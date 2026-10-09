@@ -188,28 +188,64 @@ with tab_run:
     run_button = st.button("🚀 Start Research", type="primary", disabled=not topic, use_container_width=True)
 
 
-    # ── Execution ─────────────────────────────────────────────────────────────────
+    # ── State Machine ─────────────────────────────────────────────────────────────
+    if "workflow_stage" not in st.session_state:
+        st.session_state.workflow_stage = "idle"
+        st.session_state.plan = []
+        st.session_state.result = None
+
     if run_button:
-        # Status container for real-time agent activity
+        st.session_state.workflow_stage = "planning"
+        st.session_state.topic = topic
+
+    # ── Execution ─────────────────────────────────────────────────────────────────
+    if st.session_state.workflow_stage == "planning":
+        status = st.status("🧠 Planner Agent is breaking down the topic...", expanded=True)
+        supervisor = Supervisor(on_status=lambda msg: status.write(msg))
+        st.session_state.plan = supervisor.plan_research(st.session_state.topic)
+        st.session_state.workflow_stage = "review_plan"
+        status.update(label="✅ Planning complete! Waiting for your review.", state="complete", expanded=False)
+        st.rerun()
+
+    if st.session_state.workflow_stage == "review_plan":
+        st.markdown("### 📝 Human-in-the-Loop: Review Research Plan")
+        st.info("The Planner has decomposed your topic. You can edit, delete, or rewrite these sub-questions before the Researchers begin.")
+        
+        edited_plan = []
+        for i, q in enumerate(st.session_state.plan):
+            val = st.text_input(f"Sub-question {i+1}", value=q, key=f"q_{i}")
+            if val.strip():
+                edited_plan.append(val.strip())
+                
+        new_q = st.text_input("Add a new sub-question (optional)", placeholder="Type a custom question here...", key="q_new")
+        if new_q.strip():
+            edited_plan.append(new_q.strip())
+            
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("🚀 Approve & Start Research", type="primary", use_container_width=True):
+                st.session_state.plan = edited_plan
+                st.session_state.workflow_stage = "researching"
+                st.rerun()
+
+    if st.session_state.workflow_stage == "researching":
         agent_log = st.container()
         status_logs: list[str] = []
 
         def on_status(msg: str):
-            """Callback for real-time agent status updates."""
             status_logs.append(msg)
 
-        status = st.status("🤖 Initializing multi-agent pipeline...", expanded=True)
+        status = st.status("🔍 Researchers are gathering data...", expanded=True)
 
         with status:
             supervisor = Supervisor(on_status=on_status)
-
-            # Run the pipeline
+            
             if use_async:
-                status.update(label="⚡ Running concurrent multi-agent pipeline...")
-                result = supervisor.run_async(topic)
+                result = supervisor.execute_research_async(st.session_state.topic, st.session_state.plan)
             else:
-                status.update(label="🔄 Running sequential multi-agent pipeline...")
-                result = supervisor.run(topic)
+                # We can handle sequential here if we want, but let's stick to async for the new UI since it's the premium feature.
+                # Actually, backward support:
+                result = supervisor.execute_research_async(st.session_state.topic, st.session_state.plan)
 
             # Show agent activity log
             st.markdown("### 📋 Agent Activity Log")
@@ -245,6 +281,12 @@ with tab_run:
                 )
 
         status.update(label="✅ Research complete!", state="complete", expanded=False)
+        st.session_state.result = result
+        st.session_state.workflow_stage = "complete"
+        st.rerun()
+
+    if st.session_state.workflow_stage == "complete":
+        result = st.session_state.result
 
         # ── Metrics Dashboard ─────────────────────────────────────────────────────
         st.markdown("---")

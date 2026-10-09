@@ -12,5 +12,9 @@ sqlalchemy>=2.0.0
 streamlit>=1.30.0
 pandas>=2.0.0
 
+# Tools
+PyPDF2>=3.0.1
+requests>=2.31.0
+
 # Already in stdlib
 # asyncio, concurrent.futures, json, time, re, os

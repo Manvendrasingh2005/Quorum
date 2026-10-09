@@ -29,6 +29,7 @@ jobs:
         # We dummy out API keys for the pytest run since tests should be mocked and not hit live APIs.
         GEMINI_API_KEY: "dummy_test_key"
         TAVILY_API_KEY: "dummy_test_key"
+        PYTHONPATH: "."
       run: |
         # Run tests excluding integration/live folders if any exist, just root level tests for now.
         pytest tests/ -v

@@ -158,31 +158,24 @@ class Supervisor:
 
         return final_report
 
-    def run_async(self, topic: str) -> ResearchReport:
-        """
-        Run the pipeline with CONCURRENT researchers.
-        Each sub-question is researched in parallel, then sequentially critiqued.
-        This cuts latency dramatically (4 sequential → 4 parallel).
-        """
+    def plan_research(self, topic: str) -> list[str]:
         metrics.start()
         self._log(f"\n{'═' * 50}")
-        self._log(f"[Supervisor] Starting ASYNC research: {topic}")
+        self._log(f"[Supervisor] Starting research planning: {topic}")
         self._log(f"{'═' * 50}\n")
-
-        # Step 1: Plan
         self._log("[Supervisor] → Planner Agent")
         subquestions = self.planner.plan(topic)
         for i, q in enumerate(subquestions, 1):
             self._log(f"  {i}. {q}")
+        return subquestions
 
+    def execute_research_async(self, topic: str, subquestions: list[str]) -> ResearchReport:
         # Step 2: Research + Critic loop (concurrent)
         self._log(f"\n[Supervisor] Dispatching {len(subquestions)} researchers concurrently...")
 
         findings: list[ResearchFinding] = []
         approved_findings: dict[str, str] = {}
 
-        # Use ThreadPoolExecutor for concurrent research
-        # (Gemini API calls are I/O-bound, so threads work well)
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=len(subquestions)
         ) as executor:
@@ -228,6 +221,14 @@ class Supervisor:
         save_report(topic, report, final_report.model_dump())
 
         return final_report
+
+    def run_async(self, topic: str) -> ResearchReport:
+        """
+        Run the pipeline with CONCURRENT researchers entirely.
+        This provides backward compatibility with scripts not using HITL.
+        """
+        subquestions = self.plan_research(topic)
+        return self.execute_research_async(topic, subquestions)
 
 
 # ── CLI Entry Point ───────────────────────────────────────────────────────────
