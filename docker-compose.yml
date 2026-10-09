@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  quorum-app:
+    build: .
+    container_name: quorum-ai
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./.chroma_db:/app/.chroma_db
+      - ./research_history.db:/app/research_history.db
+    env_file:
+      - .env
+    restart: unless-stopped

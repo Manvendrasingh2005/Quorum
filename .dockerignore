@@ -1,0 +1,7 @@
+venv/
+.env
+.git/
+.chroma_db/
+research_history.db
+__pycache__/
+*.pyc
