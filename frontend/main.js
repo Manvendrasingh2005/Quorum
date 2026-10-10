@@ -7,6 +7,7 @@ const planList = document.getElementById('planList');
 const executeBtn = document.getElementById('executeBtn');
 const executionStatus = document.getElementById('executionStatus');
 const executionStatusText = document.getElementById('executionStatusText');
+const agentStreamDetails = document.getElementById('agentStreamDetails');
 const agentStream = document.getElementById('agentStream');
 const reportContainer = document.getElementById('reportContainer');
 const finalReport = document.getElementById('finalReport');
@@ -29,6 +30,7 @@ submitBtn.addEventListener('click', async () => {
     globalTopic = topic;
     hitlContainer.style.display = 'none';
     executionStatus.style.display = 'none';
+    agentStreamDetails.style.display = 'none';
     reportContainer.style.display = 'none';
     
     planningStatus.style.display = 'flex';
@@ -82,10 +84,11 @@ executeBtn.addEventListener('click', async () => {
     const subs = Array.from(document.querySelectorAll('.plan-input')).map(el => el.value.trim()).filter(v => v);
     
     executionStatus.style.display = 'block';
-    executionStatusText.innerText = '🔍 Researchers are gathering data...';
+    agentStreamDetails.style.display = 'block';
+    executionStatusText.innerText = '🔍 Researchers are gathering data (Click below to view live logs)...';
     
     // Clear old logs
-    agentStream.innerHTML = '<h3>📋 Agent Activity Log</h3>';
+    agentStream.innerHTML = '';
     
     try {
         const execution = await fetch('http://127.0.0.1:8000/api/execute', {
@@ -113,22 +116,35 @@ executeBtn.addEventListener('click', async () => {
                         const payload = JSON.parse(dataMatch[1].trim());
                         
                         if (payload.agent || payload.status) {
-                            const sender = payload.agent ? payload.agent.toLowerCase() : 'system';
+                            let sender = payload.agent ? payload.agent.toLowerCase() : 'system';
                             const msg = payload.status || payload.summary || payload.decision || '';
                             let css = 'agent-card'; let icon = '📡';
                             
-                            if (sender.includes('planner')) { css += ' agent-planner'; icon = '🧠'; }
-                            else if (sender.includes('researcher')) { css += ' agent-researcher'; icon = '🔍'; }
-                            else if (sender.includes('writer')) { css += ' agent-writer'; icon = '✍️'; }
+                            // Smartly infer sender from message if backend hardcoded System
+                            if (sender === 'system' || sender === '') {
+                                const lowerMsg = msg.toLowerCase();
+                                if (lowerMsg.includes('[critic]') || lowerMsg.includes('critic reviewing')) sender = 'critic';
+                                else if (lowerMsg.includes('[researcher]') || lowerMsg.includes('researcher (attempt') || lowerMsg.includes('searching:')) sender = 'researcher';
+                                else if (lowerMsg.includes('[supervisor]') && lowerMsg.includes('synthesizing')) sender = 'writer';
+                                else if (lowerMsg.includes('[supervisor]')) sender = 'planner';
+                            }
+                            
+                            if (sender.includes('planner')) { css += ' agent-planner'; icon = '🧠'; sender = 'Planner'; }
+                            else if (sender.includes('researcher')) { css += ' agent-researcher'; icon = '🔍'; sender = 'Researcher'; }
+                            else if (sender.includes('writer')) { css += ' agent-writer'; icon = '✍️'; sender = 'Writer'; }
                             else if (sender.includes('critic')) { 
-                                if (payload.type === 'approval') { css += ' agent-critic-approve'; icon = '✅'; }
+                                sender = 'Critic';
+                                if (payload.type === 'approval' || msg.includes('✅ APPROVED')) { css += ' agent-critic-approve'; icon = '✅'; }
                                 else { css += ' agent-critic-reject'; icon = '❌'; }
-                            } else { css += ' agent-system'; }
+                            } else { css += ' agent-system'; sender = 'System'; }
 
                             const card = document.createElement('div');
                             card.className = css;
-                            card.innerHTML = `<b>${icon} ${sender.toUpperCase()}</b>: ${msg}`;
+                            card.innerHTML = `<b>${icon} ${sender}</b>: ${msg}`;
                             agentStream.appendChild(card);
+                            
+                            // Autoscroll stream buffer block
+                            agentStream.scrollTop = agentStream.scrollHeight;
                         }
 
                         if (payload.report) {

@@ -58,12 +58,17 @@
           <div class="expander">
             <span id="executionStatusText">🔍 Researchers are gathering data...</span>
           </div>
-          
-          <div id="agentStream" class="block" style="margin-top: 20px;">
-            <h3>📋 Agent Activity Log</h3>
-            <!-- Logs append here -->
-          </div>
         </div>
+
+        <!-- Collapsible Agent Log Container -->
+        <details id="agentStreamDetails" class="block" style="display:none; margin-top: 15px;">
+            <summary style="cursor: pointer; font-size: 18px; font-weight: 600; padding: 10px; background: #e2e8f0; border-radius: 8px;">
+                📋 View Live Agent Activity Log
+            </summary>
+            <div id="agentStream" style="margin-top: 15px; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; max-height: 400px; overflow-y: auto;">
+                <!-- Logs append here -->
+            </div>
+        </details>
 
         <!-- Final Report State -->
         <div id="reportContainer" style="display: none;">
