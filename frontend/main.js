@@ -103,11 +103,11 @@ executeBtn.addEventListener('click', async () => {
             if (done) break;
             
             buffer += decoder.decode(value, { stream: true });
-            const chunks = buffer.split('\\n\\n');
+            const chunks = buffer.split('\n\n');
             buffer = chunks.pop(); 
 
             chunks.forEach(part => {
-                const dataMatch = part.match(/data:\\s*(.*)/);
+                const dataMatch = part.match(/data:\s*(.*)/);
                 if (dataMatch) {
                     try {
                         const payload = JSON.parse(dataMatch[1].trim());
