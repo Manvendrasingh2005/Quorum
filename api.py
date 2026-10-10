@@ -29,6 +29,7 @@ active_sessions = {}
 
 class PlanRequest(BaseModel):
     topic: str
+    base64_image: str | None = None
 
 class ExecuteRequest(BaseModel):
     topic: str
@@ -43,7 +44,7 @@ async def generate_plan(request: PlanRequest):
         supervisor = Supervisor()
         
         # We run this in a thread since it's currently sync
-        plan_list = await asyncio.to_thread(supervisor.plan_research, request.topic)
+        plan_list = await asyncio.to_thread(supervisor.plan_research, request.topic, getattr(request, 'base64_image', None))
         return {"subquestions": plan_list}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

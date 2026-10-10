@@ -15,8 +15,15 @@ const metricsDashboard = document.getElementById('metricsDashboard');
 const historyList = document.getElementById('historyList');
 const dlPdfBtn = document.getElementById('dlPdfBtn');
 
+const imageBtn = document.getElementById('imageBtn');
+const imageInput = document.getElementById('imageInput');
+const imagePreviewContainer = document.getElementById('imagePreviewContainer');
+const imageThumbnail = document.getElementById('imageThumbnail');
+const removeImageBtn = document.getElementById('removeImageBtn');
+
 let globalTopic = '';
 let globalFinalMarkdown = '';
+let globalBase64Image = null;
 
 // Voice Recognition Setup
 const micBtn = document.getElementById('micBtn');
@@ -44,14 +51,38 @@ if (SpeechRecognition) {
     micBtn.style.display = 'none'; // Hide if browser doesn't support it
 }
 
-promptInput.addEventListener('input', () => {
+// Image Upload Logic
+imageBtn.addEventListener('click', () => { imageInput.click(); });
+imageInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            // Strip the standard base64 data prefix 'data:image/jpeg;base64,' automatically added by Firefox/Chrome
+            const fullData = event.target.result;
+            globalBase64Image = fullData.split(',')[1];
+            imageThumbnail.src = fullData;
+            imagePreviewContainer.style.display = 'block';
+            submitBtn.disabled = false; // Enable submit purely on image upload
+        };
+        reader.readAsDataURL(file);
+    }
+});
+removeImageBtn.addEventListener('click', () => {
+    globalBase64Image = null;
+    imageInput.value = "";
+    imagePreviewContainer.style.display = 'none';
     submitBtn.disabled = promptInput.value.trim().length === 0;
+});
+
+promptInput.addEventListener('input', () => {
+    submitBtn.disabled = (promptInput.value.trim().length === 0 && !globalBase64Image);
 });
 
 // Phase 1: Planning
 submitBtn.addEventListener('click', async () => {
     const topic = promptInput.value.trim();
-    if (!topic) return;
+    if (!topic && !globalBase64Image) return;
     
     globalTopic = topic;
     hitlContainer.style.display = 'none';
@@ -63,10 +94,13 @@ submitBtn.addEventListener('click', async () => {
     planningStatusText.innerText = '🧠 Planner Agent is breaking down the topic...';
     
     try {
+        const payload = { topic };
+        if (globalBase64Image) { payload.base64_image = globalBase64Image; }
+        
         const planRes = await fetch('http://127.0.0.1:8000/api/plan', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ topic })
+            body: JSON.stringify(payload)
         });
         
         if (!planRes.ok) {

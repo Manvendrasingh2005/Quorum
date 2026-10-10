@@ -24,11 +24,19 @@ class PlannerAgent(BaseAgent):
     )
     uses_tools = False
 
-    def plan(self, topic: str) -> list[str]:
+    def plan(self, topic: str, base64_image: str | None = None) -> list[str]:
         """Break a topic into sub-questions. Returns validated list."""
+        
+        img_instruction = ""
+        if base64_image:
+            img_instruction = "IMPORTANT: An image has been provided. Extract handwritten or computerized text from it, and incorporate it into the topic. "
+            if not topic:
+                topic = "Determine the research topic purely from the contents of the attached image."
+        
         prompt = (
             f"Break this research topic into exactly {MAX_SUBQUESTIONS} focused "
             f"sub-questions that together give a complete picture.\n\n"
+            f"{img_instruction}"
             f"Topic: \"{topic}\"\n\n"
             "Respond with ONLY a JSON object in this exact format:\n"
             '{"sub_questions": ["question 1", "question 2", "question 3", "question 4"]}\n\n'
@@ -36,7 +44,7 @@ class PlannerAgent(BaseAgent):
         )
 
         try:
-            result = self._validated_ask(prompt, SubQuestionPlan)
+            result = self._validated_ask(prompt, SubQuestionPlan, image_data=base64_image)
             questions = result.sub_questions[:MAX_SUBQUESTIONS]
         except ValueError:
             # If validation completely fails, fall back to using topic directly

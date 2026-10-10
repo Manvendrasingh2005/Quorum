@@ -158,13 +158,13 @@ class Supervisor:
 
         return final_report
 
-    def plan_research(self, topic: str) -> list[str]:
+    def plan_research(self, topic: str, base64_image: str | None = None) -> list[str]:
         metrics.start()
         self._log(f"\n{'═' * 50}")
-        self._log(f"[Supervisor] Starting research planning: {topic}")
+        self._log(f"[Supervisor] Starting research planning: {topic or 'Analyzing image...'}")
         self._log(f"{'═' * 50}\n")
         self._log("[Supervisor] → Planner Agent")
-        subquestions = self.planner.plan(topic)
+        subquestions = self.planner.plan(topic, base64_image)
         for i, q in enumerate(subquestions, 1):
             self._log(f"  {i}. {q}")
         return subquestions

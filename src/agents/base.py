@@ -187,9 +187,20 @@ class BaseAgent:
             f"[{self.role}] All models failed: {', '.join(models)}"
         ) from last_error
 
-    def _ask(self, prompt: str) -> types.GenerateContentResponse:
-        """One-shot call (no tool loop)."""
-        contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
+    def _ask(self, prompt: str, image_data: str | None = None) -> types.GenerateContentResponse:
+        """One-shot call (no tool loop), with optional image support."""
+        import base64
+        parts = []
+        if image_data:
+            parts.append(
+                types.Part.from_bytes(
+                    data=base64.b64decode(image_data),
+                    mime_type="image/jpeg",
+                )
+            )
+        parts.append(types.Part.from_text(text=prompt))
+        
+        contents = [types.Content(role="user", parts=parts)]
         return self._call_model(contents)
 
     def _ask_with_tools(self, prompt: str) -> str:
@@ -238,6 +249,7 @@ class BaseAgent:
         self,
         prompt: str,
         schema: type[BaseModel],
+        image_data: str | None = None
     ) -> BaseModel:
         """
         Ask the model and validate the response against a Pydantic schema.
@@ -247,7 +259,7 @@ class BaseAgent:
         last_text = ""
         for attempt in range(MAX_SCHEMA_RETRIES + 1):
             if attempt == 0:
-                response = self._ask(prompt)
+                response = self._ask(prompt, image_data=image_data)
             else:
                 # Error-correction retry: tell the model what went wrong
                 metrics.schema_retries += 1

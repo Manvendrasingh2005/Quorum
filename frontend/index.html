@@ -31,8 +31,16 @@
           <div class="input-row">
             <input type="text" id="promptInput" class="text-input" placeholder="e.g. Compare RAG vs fine-tuning for customer support chatbots" style="margin-bottom: 0;" />
             <button id="micBtn" class="mic-btn" title="Click to speak">🎤</button>
+            <button id="imageBtn" class="mic-btn" style="border-radius: 8px;" title="Upload Image">📎</button>
+            <input type="file" id="imageInput" accept="image/*" style="display: none;" />
           </div>
-          <button id="submitBtn" class="primary-btn" disabled style="margin-top: 16px;">🚀 Start Research</button>
+          
+          <div id="imagePreviewContainer" style="display: none; position: relative; width: fit-content; margin-bottom: 16px;">
+              <img id="imageThumbnail" style="max-height: 150px; border-radius: 8px; border: 1px solid #cbd5e1;" />
+              <button id="removeImageBtn" style="position: absolute; top: -10px; right: -10px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-weight: bold; font-size: 14px;">✕</button>
+          </div>
+          
+          <button id="submitBtn" class="primary-btn" disabled style="margin-top: 10px;">🚀 Start Research</button>
         </div>
 
         <hr />
