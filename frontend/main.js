@@ -223,7 +223,37 @@ async function loadHistory() {
          card.innerHTML = `<strong>${item.topic}</strong><small>${new Date(item.created_at).toLocaleDateString()}</small>`;
          card.onclick = () => {
             promptInput.value = item.topic;
+            globalTopic = item.topic;
+            globalFinalMarkdown = item.report_text;
             submitBtn.disabled = false;
+            
+            // Immediately render the report from DB
+            hitlContainer.style.display = 'none';
+            planningStatus.style.display = 'none';
+            executionStatus.style.display = 'none';
+            agentStreamDetails.style.display = 'none';
+            
+            reportContainer.style.display = 'block';
+            finalReport.innerHTML = marked.parse(item.report_text);
+            
+            // Render cached metrics if available
+            if (item.data && item.data.metrics) {
+                metricsDashboard.innerHTML = '';
+                const metricsList = [
+                    {l: 'Time', v: item.data.metrics.total_time + 's'},
+                    {l: 'Calls', v: item.data.metrics.model_calls},
+                    {l: 'Searches', v: item.data.metrics.search_calls},
+                    {l: 'Mem Hits', v: item.data.metrics.memory_hits},
+                    {l: 'Approvals', v: item.data.metrics.critic_approvals},
+                    {l: 'Rejections', v: item.data.metrics.critic_rejections},
+                ];
+                metricsList.forEach(m => {
+                    metricsDashboard.innerHTML += `<div class="metric-card"><div class="metric-val">${m.v}</div><div class="metric-lbl">${m.l}</div></div>`;
+                });
+            }
+            
+            // Scroll to the report
+            window.scrollTo({ top: 0, behavior: 'smooth' });
          };
          historyList.appendChild(card);
       });
