@@ -28,8 +28,11 @@
 
         <div class="block">
           <label for="promptInput" class="input-label">Research Topic</label>
-          <input type="text" id="promptInput" class="text-input" placeholder="e.g. Compare RAG vs fine-tuning for customer support chatbots" />
-          <button id="submitBtn" class="primary-btn" disabled>🚀 Start Research</button>
+          <div class="input-row">
+            <input type="text" id="promptInput" class="text-input" placeholder="e.g. Compare RAG vs fine-tuning for customer support chatbots" style="margin-bottom: 0;" />
+            <button id="micBtn" class="mic-btn" title="Click to speak">🎤</button>
+          </div>
+          <button id="submitBtn" class="primary-btn" disabled style="margin-top: 16px;">🚀 Start Research</button>
         </div>
 
         <hr />

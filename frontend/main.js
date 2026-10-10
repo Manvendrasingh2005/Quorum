@@ -18,6 +18,32 @@ const dlPdfBtn = document.getElementById('dlPdfBtn');
 let globalTopic = '';
 let globalFinalMarkdown = '';
 
+// Voice Recognition Setup
+const micBtn = document.getElementById('micBtn');
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    
+    recognition.onstart = () => { micBtn.classList.add('listening'); };
+    recognition.onend = () => { micBtn.classList.remove('listening'); };
+    recognition.onerror = () => { micBtn.classList.remove('listening'); alert("Microphone access denied or error occurred."); };
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        promptInput.value = transcript;
+        submitBtn.disabled = false;
+    };
+    
+    micBtn.addEventListener('click', () => {
+        if (micBtn.classList.contains('listening')) { recognition.stop(); } 
+        else { recognition.start(); }
+    });
+} else {
+    micBtn.style.display = 'none'; // Hide if browser doesn't support it
+}
+
 promptInput.addEventListener('input', () => {
     submitBtn.disabled = promptInput.value.trim().length === 0;
 });

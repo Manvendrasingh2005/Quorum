@@ -45,10 +45,20 @@ hr { border: 0; border-top: 1px solid #e5e7eb; margin: 24px 0; }
 
 /* Basic UI Elements */
 .input-label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 .text-input { 
-  width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; background-color: rgb(255, 255, 255); color: #1f2937; padding: 12px 16px; font-size: 16px; transition: border-color 0.2s ease; margin-bottom: 16px; font-family: 'Outfit', sans-serif;
+  flex: 1; border: 1px solid #cbd5e1; border-radius: 8px; background-color: rgb(255, 255, 255); color: #1f2937; padding: 12px 16px; font-size: 16px; transition: border-color 0.2s ease; font-family: 'Outfit', sans-serif;
 }
 .text-input:focus { border-color: #3b82f6; outline: none; }
+
+.mic-btn {
+  background: white; border: 1px solid #cbd5e1; border-radius: 50%; width: 46px; height: 46px; cursor: pointer; font-size: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;
+}
+.mic-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
+.mic-btn.listening {
+  background: #fee2e2; border-color: #ef4444; color: #dc2626; animation: pulse-red 1.5s infinite;
+}
+@keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
 
 .primary-btn {
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
