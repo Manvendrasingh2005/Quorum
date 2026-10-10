@@ -103,7 +103,7 @@ executeBtn.addEventListener('click', async () => {
             if (done) break;
             
             buffer += decoder.decode(value, { stream: true });
-            const chunks = buffer.split('\n\n');
+            const chunks = buffer.split(/\r?\n\r?\n/);
             buffer = chunks.pop(); 
 
             chunks.forEach(part => {
@@ -159,7 +159,12 @@ executeBtn.addEventListener('click', async () => {
                             executionStatusText.innerText = `❌ Error: ${payload.error}`;
                             const errCard = document.createElement('div'); errCard.className = 'agent-card agent-critic-reject'; errCard.innerText = `Error: ${payload.error}`; agentStream.appendChild(errCard);
                         }
-                    } catch(e) {}
+                    } catch(e) {
+                         const errCard = document.createElement('div');
+                         errCard.className = 'agent-card agent-critic-reject';
+                         errCard.innerText = `JS Parsing Error: ${e.message} on payload: ${dataMatch[1].substring(0, 100)}`;
+                         agentStream.appendChild(errCard);
+                    }
                 }
             });
         }
