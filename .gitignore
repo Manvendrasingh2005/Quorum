@@ -14,8 +14,27 @@ venv/
 research_history.db
 evaluation_results.json
 
-# VS Code
+# Node & Frontend
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.vite/
+**/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files (Never commit API keys)
+.env
+**/.env
+**/.env*.local
+!.env.example
+!**/.env.example
+
+# VS Code & IDEs
 .vscode/
+.idea/
 
 # OS Files
 .DS_Store

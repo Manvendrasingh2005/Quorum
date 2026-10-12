@@ -17,14 +17,47 @@ app = FastAPI(title="Quorum API")
 # Allow CORS for the Vite frontend (which usually runs on localhost:5173)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "*",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+def parse_status_message(msg: str) -> dict:
+    """Classifies log messages by agent and flags critic verification loops."""
+    msg_str = str(msg).strip()
+    agent = "System"
+    is_rejection = False
+    is_approval = False
+
+    if "[Planner]" in msg_str or "Planner Agent" in msg_str or "planning:" in msg_str.lower():
+        agent = "Planner"
+    elif "[Critic]" in msg_str or "Critic" in msg_str:
+        agent = "Critic"
+        if "REJECTED" in msg_str or "❌" in msg_str:
+            is_rejection = True
+        elif "APPROVED" in msg_str or "✅" in msg_str:
+            is_approval = True
+    elif "[Researcher]" in msg_str or "Researcher" in msg_str or "search" in msg_str.lower() or "arxiv" in msg_str.lower():
+        agent = "Researcher"
+    elif "[Writer]" in msg_str or "Writer Agent" in msg_str or "synthesiz" in msg_str.lower():
+        agent = "Writer"
+    elif "[Supervisor]" in msg_str:
+        agent = "Supervisor"
+
+    return {
+        "agent": agent,
+        "status": msg_str,
+        "is_rejection": is_rejection,
+        "is_approval": is_approval,
+    }
+
 # Store supervisors in memory temporarily for the 2-step process
-# Key: topic string, Value: Supervisor instance
 active_sessions = {}
 
 class PlanRequest(BaseModel):
@@ -34,6 +67,11 @@ class PlanRequest(BaseModel):
 class ExecuteRequest(BaseModel):
     topic: str
     custom_subquestions: list[str]
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint to verify backend connectivity."""
+    return {"status": "ok", "app": "Quorum API", "version": "1.0.0"}
 
 @app.post("/api/plan")
 async def generate_plan(request: PlanRequest):
@@ -66,7 +104,6 @@ async def execute_research(request: Request):
     loop = asyncio.get_running_loop()
 
     def on_status_callback(msg: str):
-        # Called from synchronous threads, must use the captured FastAPI main event loop
         try:
             loop.call_soon_threadsafe(queue.put_nowait, msg)
         except Exception:
@@ -94,14 +131,81 @@ async def execute_research(request: Request):
             msg = await queue.get()
             if isinstance(msg, dict):
                 if msg.get("type") == "done":
-                    yield {"event": "agent_log", "data": json.dumps({"report": msg["report"], "metrics": msg["metrics"], "findings": msg["findings"]})}
+                    yield {
+                        "event": "agent_log",
+                        "data": json.dumps({
+                            "type": "done",
+                            "report": msg["report"],
+                            "metrics": msg["metrics"],
+                            "findings": msg["findings"],
+                        }),
+                    }
                     break
                 elif msg.get("type") == "error":
                     yield {"event": "error", "data": json.dumps({"error": msg["error"]})}
                     break
             else:
-                yield {"event": "agent_log", "data": json.dumps({"agent": "System", "status": msg})}
+                parsed = parse_status_message(msg)
+                yield {"event": "agent_log", "data": json.dumps(parsed)}
                 
+    return EventSourceResponse(event_generator())
+
+@app.get("/api/stream")
+async def stream_research_get(topic: str, request: Request):
+    """
+    GET SSE stream: Plans and executes end-to-end multi-agent research.
+    Enables native EventSource in browsers without requiring POST fetch streaming.
+    """
+    if not topic:
+        raise HTTPException(status_code=400, detail="Missing topic query parameter")
+
+    queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def on_status_callback(msg: str):
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, msg)
+        except Exception:
+            pass
+
+    async def event_generator():
+        supervisor = Supervisor(on_status=on_status_callback)
+
+        def run_sync():
+            try:
+                res = supervisor.run_async(topic)
+                loop.call_soon_threadsafe(queue.put_nowait, {
+                    "type": "done",
+                    "report": res.report,
+                    "metrics": res.metrics,
+                    "findings": [f.model_dump() for f in res.findings],
+                })
+            except Exception as e:
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "error": str(e)})
+
+        loop.run_in_executor(None, run_sync)
+
+        while True:
+            msg = await queue.get()
+            if isinstance(msg, dict):
+                if msg.get("type") == "done":
+                    yield {
+                        "event": "agent_log",
+                        "data": json.dumps({
+                            "type": "done",
+                            "report": msg["report"],
+                            "metrics": msg["metrics"],
+                            "findings": msg["findings"],
+                        }),
+                    }
+                    break
+                elif msg.get("type") == "error":
+                    yield {"event": "error", "data": json.dumps({"error": msg["error"]})}
+                    break
+            else:
+                parsed = parse_status_message(msg)
+                yield {"event": "agent_log", "data": json.dumps(parsed)}
+
     return EventSourceResponse(event_generator())
 
 @app.get("/api/history")

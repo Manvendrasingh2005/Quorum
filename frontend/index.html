@@ -1,103 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Quorum - Research System</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./style.css" />
+    <title>Quorum — Autonomous Multi-Agent AI Research</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/output.css">
   </head>
-  <body>
-    <div class="app-container">
-      
-      <!-- Sidebar -->
-      <aside class="sidebar" id="sidebar">
-        <h3>📚 Past Research</h3>
-        <p class="sidebar-sub">Loaded from SQLite memory.</p>
-        <div id="historyList"></div>
-      </aside>
-
-      <!-- Main Content -->
-      <main class="main-content">
-        <h1>🤖 Quorum</h1>
-        <p class="subtitle">
-          <i>Four AI agents — <strong>Planner</strong>, <strong>Researcher</strong>, <strong>Critic</strong>, <strong>Writer</strong> — collaborate to produce quality-reviewed research reports.</i>
-        </p>
-
-        <hr />
-
-        <div class="block">
-          <label for="promptInput" class="input-label">Research Topic</label>
-          <div class="input-row">
-            <input type="text" id="promptInput" class="text-input" placeholder="e.g. Compare RAG vs fine-tuning for customer support chatbots" style="margin-bottom: 0;" />
-            <button id="micBtn" class="mic-btn" title="Click to speak">🎤</button>
-            <button id="imageBtn" class="mic-btn" style="border-radius: 8px;" title="Upload Image">📎</button>
-            <input type="file" id="imageInput" accept="image/*" style="display: none;" />
-          </div>
-          
-          <div id="imagePreviewContainer" style="display: none; position: relative; width: fit-content; margin-bottom: 16px;">
-              <img id="imageThumbnail" style="max-height: 150px; border-radius: 8px; border: 1px solid #cbd5e1;" />
-              <button id="removeImageBtn" style="position: absolute; top: -10px; right: -10px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-weight: bold; font-size: 14px;">✕</button>
-          </div>
-          
-          <button id="submitBtn" class="primary-btn" disabled style="margin-top: 10px;">🚀 Start Research</button>
-        </div>
-
-        <hr />
-
-        <!-- Planning State (Hidden Initially) -->
-        <div id="planningStatus" class="status-container" style="display:none;">
-          <div class="expander">
-            <span id="planningStatusText">🧠 Planner Agent is breaking down the topic...</span>
-          </div>
-        </div>
-
-        <!-- HITL Plan Review State -->
-        <div id="hitlContainer" class="block" style="display: none;">
-          <h3>📝 Human-in-the-Loop: Review Research Plan</h3>
-          <div class="info-box">The Planner has decomposed your topic. You can edit, delete, or rewrite these sub-questions before the Researchers begin.</div>
-          
-          <div id="planList"></div>
-          
-          <div style="margin-top: 15px;">
-             <button id="executeBtn" class="primary-btn pulse-btn">🚀 Approve & Start Research</button>
-          </div>
-        </div>
-
-        <!-- Execution State -->
-        <div id="executionStatus" class="status-container" style="display:none;">
-          <div class="expander">
-            <span id="executionStatusText">🔍 Researchers are gathering data...</span>
-          </div>
-        </div>
-
-        <!-- Collapsible Agent Log Container -->
-        <details id="agentStreamDetails" class="block" style="display:none; margin-top: 15px;">
-            <summary style="cursor: pointer; font-size: 18px; font-weight: 600; padding: 10px; background: #e2e8f0; border-radius: 8px;">
-                📋 View Live Agent Activity Log
-            </summary>
-            <div id="agentStream" style="margin-top: 15px; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; max-height: 400px; overflow-y: auto;">
-                <!-- Logs append here -->
-            </div>
-        </details>
-
-        <!-- Final Report State -->
-        <div id="reportContainer" style="display: none;">
-          <hr />
-          <h3>📊 Run Metrics</h3>
-          <div id="metricsDashboard" class="metrics-grid block"></div>
-
-          <hr />
-          <h3>📝 Research Report</h3>
-          <div id="finalReport" class="report-box block"></div>
-          
-          <button id="dlPdfBtn" class="primary-btn" style="margin-top: 20px;">📄 Download as PDF</button>
-        </div>
-
-      </main>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script type="module" src="./main.js"></script>
+  <body class="bg-background text-foreground antialiased min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

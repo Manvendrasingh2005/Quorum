@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 4%;
+    --card: 0 0% 98%;
+    --card-foreground: 240 10% 4%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 239 84% 67%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 10% 4%;
+    --radius: 0.75rem;
+
+    /* Agent status tokens */
+    --agent-planner: 217 91% 60%;
+    --agent-researcher: 160 84% 39%;
+    --agent-critic: 38 92% 50%;
+    --agent-critic-reject: 0 84% 60%;
+    --agent-writer: 280 87% 65%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 6.5%;
+    --card-foreground: 0 0% 98%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;
+    --border: 240 4% 18%;
+    --input: 240 4% 18%;
+    --ring: 239 84% 67%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 10% 4%;
+    --accent: 240 4% 16%;
+    --accent-foreground: 0 0% 98%;
+
+    --agent-planner: 217 91% 60%;
+    --agent-researcher: 160 84% 39%;
+    --agent-critic: 38 92% 50%;
+    --agent-critic-reject: 0 84% 60%;
+    --agent-writer: 280 87% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased selection:bg-indigo-500/30 selection:text-white;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(160, 160, 160, 0.2);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(160, 160, 160, 0.4);
+}
