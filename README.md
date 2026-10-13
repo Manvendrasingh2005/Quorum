@@ -1,99 +1,219 @@
 # Quorum 🤖
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.32+-red.svg)
-![Pydantic](https://img.shields.io/badge/Pydantic-2.0+-green.svg)
-![ChromaDB](https://img.shields.io/badge/ChromaDB-Enabled-orange.svg)
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18+-61DAFB.svg?logo=react&logoColor=black)
+![Vite](https://img.shields.io/badge/Vite-5+-646CFF.svg?logo=vite&logoColor=white)
+![Google Gemini](https://img.shields.io/badge/Google_Gemini-API-8E75C2.svg?logo=google&logoColor=white)
+![Tavily](https://img.shields.io/badge/Tavily-Live_Search-4A90E2.svg)
 
-A production-grade, multi-agent AI research pipeline that autonomously plans, researches, reviews, and synthesizes complex topics. Built to demonstrate advanced LLM orchestration, structured data validation, and agent reflection techniques.
+A high-performance, production-grade **multi-agent AI research platform** featuring **Human-in-the-Loop (HITL) sub-question editing**, adversarial fact-checking, and real-time Server-Sent Events (SSE) streaming.
+
+Quorum decomposes complex research topics into focused sub-questions, gives you direct editorial control over the inquiry plan, dispatches concurrent research swarms, subjects drafts to skeptical critic review, and synthesizes cited research reports in **~20–25 seconds** (optimized from 16+ minutes — a **42x speedup**).
 
 ---
 
-## 📐 System Architecture
+## ⚡ Interactive Workflow: Human-in-the-Loop (HITL)
 
-Instead of a single brittle API call, MARS features an orchestrated graph of specialized agents. A pure-Python `Supervisor` handles routing, concurrency, and retries, separating control-flow logic from LLM generation.
+Unlike black-box research agents that run blindly end-to-end, Quorum introduces a **two-step interactive workflow**:
 
 ```mermaid
-graph TD
-    User([User Query]) --> Planner[🧠 Planner Agent]
-    Planner -->|Sub-questions| Supervisor{Supervisor Orchestrator}
+sequenceDiagram
+    autonumber
+    actor User
+    participant Frontend as React Fluent UI
+    participant API as FastAPI Backend
+    participant Supervisor as Supervisor Orchestrator
+    participant Planner as 🧠 Planner Agent
+    participant Swarm as 🔍 Concurrent Researchers
+    participant Critic as ⚖️ Critic Agent
+    participant Writer as ✍️ Writer Agent
+
+    User->>Frontend: Enter topic (or upload image / voice prompt)
+    Frontend->>API: POST /api/plan
+    API->>Planner: Decompose topic
+    Planner-->>Frontend: 3 non-overlapping sub-questions (~1.3s)
     
-    Supervisor -->|Thread 1| R1[🔍 Researcher Agent]
-    Supervisor -->|Thread 2| R2[🔍 Researcher Agent]
-    Supervisor -->|Thread N| RN[🔍 Researcher Agent]
-    
-    R1 -->|Draft 1| Critic[⚖️ Critic Agent]
-    R2 -->|Draft 2| Critic
-    RN -->|Draft N| Critic
-    
-    Critic -->|❌ Reject with Feedback| R1
-    Critic -->|✅ Approved Findings| Writer[✍️ Writer Agent]
-    
-    Writer -->|Synthesis| Final[Final Report]
+    Note over User,Frontend: Step 1: Human-in-the-Loop Review
+    User->>Frontend: Edit, delete, or add custom sub-questions (max 5)
+    User->>Frontend: Click "Run Research"
+
+    Note over Frontend,Writer: Step 2: Concurrent Swarm Execution (~20-25s)
+    Frontend->>API: POST /api/execute (SSE Stream)
+    API->>Supervisor: Dispatch approved sub-questions
+    par Concurrent Investigation
+        Supervisor->>Swarm: Researcher 1 (Tavily search + synthesis)
+        Supervisor->>Swarm: Researcher 2 (Tavily search + synthesis)
+        Supervisor->>Swarm: Researcher 3 (Tavily search + synthesis)
+    end
+    Swarm->>Critic: Submit drafts for adversarial review
+    alt Quality Issues / Missing URLs
+        Critic-->>Swarm: ❌ Reject with targeted feedback (max 1 retry)
+        Swarm->>Critic: Re-searches & resubmits with citations
+    else Verified & Grounded
+        Critic-->>Supervisor: ✅ Approved (Grounding, Completeness, Recency)
+    end
+    Supervisor->>Writer: Synthesize verified findings
+    Writer-->>Frontend: Stream complete dossier with inline citations
+    Frontend-->>User: Display interactive report, citations drawer & PDF export
 ```
 
-### 🧠 Core Agents
-1. **Planner Agent**: Decomposes the user's high-level topic into 3-5 distinct, non-overlapping sub-questions.
-2. **Researcher Agent**: Has access to a `search_web` tool. It queries live data, reads multiple sources, and drafts heavily-cited answers.
-3. **Critic Agent**: The cornerstone of the system. It blindly scores the Researcher's drafts out of 1.0 on:
-   - **Grounding**: Are claims backed by citations?
-   - **Completeness**: Does it fully answer the prompt?
-   - **Recency**: Are the sources up to date?
-   
-   *If the draft fails the threshold, the Critic rejects it and sends the Researcher back to the web with specific revision instructions.*
-4. **Writer Agent**: Synthesizes the approved, high-fidelity findings into a cohesive final Markdown report.
+---
+
+## 🧠 The Agent Swarm
+
+Each agent role is strictly constrained with role-specific system prompts, model routing, and Pydantic validation:
+
+| Agent | Primary Model | Role & Constraints |
+|---|---|---|
+| **🧠 Planner Agent** | `gemini-flash-lite-latest` | Deconstructs broad topics into exactly 3 focused, non-overlapping sub-questions. Extracts text from multimodal screenshot/handwritten image inputs. |
+| **🔍 Researcher Agent** | `gemini-3.5-flash-lite` | Uses Tavily live web search tool. Strictly restricted to concise, fact-dense findings (200–400 words) with **mandatory inline citations**. |
+| **⚖️ Critic Agent** | `gemini-3.1-flash-lite` | Grades research out of 1.0 on **Grounding**, **Completeness**, and **Recency**. Rejects unsupported claims and missing URLs to enforce zero hallucinations. |
+| **✍️ Writer Agent** | `gemini-flash-lite-latest` | Merges overlapping findings, preserves citations, and synthesizes an executive summary, comparative matrices, and key takeaways (token-capped at 1,500 tokens). |
+| **⚡ Supervisor** | Pure Python | Manages concurrency via `ThreadPoolExecutor`, enforces retry budgets, routes SSE log events, and collects telemetry metrics without LLM overhead. |
 
 ---
 
-## ✨ Features
+## 🚀 42x Speed Optimization Architecture
 
-- **Strict Structured Outputs**: Every LLM interaction is enforced via `Pydantic` schemas. If an agent hallucinates invalid JSON, it immediately triggers an error-correction prompt retry loop.
-- **Asynchronous Execution**: Researchers run concurrently via `ThreadPoolExecutor`, dramatically reducing wall-clock latency for complex queries.
-- **Persistent Semantic Memory**: Uses `ChromaDB` (powered by Gemini embeddings) to map past verified answers. If you ask a similar question, the Researcher retrieves the cached answer directly from the vector store—bypassing the web and LLM entirely.
-- **Session History**: All completed reports are saved to a local `SQLite` database and accessible in the Streamlit sidebar.
-- **LLM-as-a-Judge Evaluation Suite**: Includes an offline evaluation script measuring System vs. Baseline (single-prompt) performance on Factual Accuracy and Citation Quality metrics.
+In our latest performance engineering release, total research latency was reduced from **991s (~16.5 minutes) to 23.3 seconds**:
+
+1. **Ultra-Low Latency Model Routing**: Replaced throttled/overloaded models with responsive, high-concurrency lite models (`gemini-flash-lite-latest`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`), eliminating 10+ cascading fallback timeouts.
+2. **Tool Step-Limit Resolution**: Resolved a step-limit termination flaw in `_ask_with_tools` by automatically prompting the model to synthesize findings from accumulated searches rather than returning an error string.
+3. **Mandatory Citations on Attempt 1**: Enforced strict URL inclusion in the Researcher prompt, eliminating round-1 Critic rejection loops.
+4. **Token Capping & Input Truncation**: Capped Writer output to 1,500 tokens and truncated input findings to 1,500 characters, preventing runaway generation.
+5. **Concurrent Asynchronous Threads**: All sub-questions are researched in parallel threads via Python `ThreadPoolExecutor`.
 
 ---
 
-## 🚀 Getting Started
+## 🛠️ Tech Stack
+
+- **Backend**: FastAPI, Uvicorn, Python 3.10+, `sse-starlette`, `xhtml2pdf`, `pydantic` v2
+- **Frontend**: React 18, Vite, TypeScript, Tailwind CSS, Framer Motion, Lucide Icons, Marked
+- **LLM & Search APIs**: Google GenAI SDK (`google-genai`), Tavily Search API
+- **Persistence & Auth**: Supabase (PostgreSQL with Row-Level Security), SQLite session archive, ChromaDB vector store
+
+---
+
+## 💻 Getting Started
 
 ### Prerequisites
 - Python 3.10+
-- A Google Gemini API Key
-- A Tavily API Key (for web searching)
+- Node.js 18+ and npm
+- A [Google Gemini API Key](https://aistudio.google.com/)
+- A [Tavily Search API Key](https://tavily.com/)
 
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/multi-agent-research-system.git
-   cd multi-agent-research-system
-   ```
+---
 
-2. Create a virtual environment and install dependencies:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: .\venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
+### 1. Clone & Setup Environment
 
-3. Configure your API keys in a `.env` file at the root:
-   ```env
-   GEMINI_API_KEY=your_gemini_key_here
-   TAVILY_API_KEY=your_tavily_key_here
-   ```
+```bash
+git clone https://github.com/Manvendrasingh2005/Quorum.git
+cd Quorum
+```
 
-### Running the Application
+Create and configure your `.env` file in the project root:
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+TAVILY_API_KEY=your_tavily_api_key_here
+```
 
-Launch the real-time Streamlit dashboard:
+---
+
+### 2. Backend Setup & Launch
+
+```bash
+# Create and activate virtual environment
+python -m venv venv
+
+# On Windows:
+.\venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the FastAPI backend server
+uvicorn api:app --host 127.0.0.1 --port 8000
+```
+Backend health check is available at: `http://127.0.0.1:8000/api/health`
+
+---
+
+### 3. Frontend Setup & Launch
+
+In a separate terminal:
+```bash
+cd frontend
+
+# Install frontend dependencies
+npm install
+
+# Start the Vite development server
+npm run dev
+```
+
+Open **[http://localhost:5173](http://localhost:5173)** in your browser.
+
+---
+
+### 4. Alternative Streamlit Dashboard
+
+If you prefer the standalone single-process dashboard:
 ```bash
 streamlit run app.py
 ```
 
-### Running the Evaluation Suite
-Measure the Multi-Agent system's performance against a baseline:
+---
+
+## 📊 Offline Evaluation Suite
+
+Measure Quorum's multi-agent performance against a single-prompt baseline on Factual Accuracy, Citation Quality, Recency, and Completeness:
+
 ```bash
 python -m src.evaluation.evaluator
 ```
 
 ---
-*Built as a demonstration of production-grade Agentic Engineering.*
+
+## 📁 Repository Structure
+
+```
+research-agent/
+├── api.py                     # FastAPI backend (SSE streaming, /api/plan, /api/execute, PDF export)
+├── app.py                     # Streamlit application dashboard
+├── src/
+│   ├── config.py              # Centralized role model routing & tuning parameters
+│   ├── orchestrator/
+│   │   └── supervisor.py      # Pure-Python orchestrator, concurrent executor & metrics
+│   ├── agents/
+│   │   ├── base.py            # Base agent with retry fallback, token caps & tool loop
+│   │   ├── planner.py         # Planner agent (multimodal topic decomposition)
+│   │   ├── researcher.py      # Researcher agent (Tavily search & fact drafting)
+│   │   ├── critic.py          # Critic agent (adversarial grounding & verification)
+│   │   └── writer.py          # Writer agent (token-capped synthesis & citation formatting)
+│   ├── tools/
+│   │   ├── search.py          # Tavily search tool wrapper
+│   │   └── pdf.py             # URL PDF reader tool
+│   ├── models/
+│   │   └── schemas.py         # Pydantic schemas (verdicts, findings, reports)
+│   └── memory/                # SQLite & ChromaDB vector store integration
+└── frontend/                  # React + Vite production application
+    ├── src/
+    │   ├── App.tsx            # Main application coordinator & view router
+    │   ├── pages/
+    │   │   ├── PlanReviewView.tsx    # Step 1: HITL sub-question editor
+    │   │   ├── ResearchRunView.tsx   # Step 2: Live SSE swarm execution monitor
+    │   │   ├── AppShell.tsx          # Workspace & query submission interface
+    │   │   └── LandingPage.tsx       # Obsidian-aesthetic landing page
+    │   └── lib/
+    │       ├── api.ts         # Typed API client with fetch ReadableStream SSE
+    │       └── supabase.ts    # Supabase authentication & history persistence
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License.
