@@ -5,7 +5,9 @@ import { IntroScreen } from './pages/IntroScreen';
 import { LandingPage } from './pages/LandingPage';
 import { AuthPage } from './pages/AuthPage';
 import { AppShell } from './pages/AppShell';
+import { PlanReviewView } from './pages/PlanReviewView';
 import { ResearchRunView } from './pages/ResearchRunView';
+import { generateResearchPlan, checkBackendHealth } from './lib/api';
 
 function MainAppShell() {
   const { user, logout } = useAuth();
@@ -17,7 +19,7 @@ function MainAppShell() {
     }
     return !sessionStorage.getItem('quorum_intro_seen');
   });
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'app' | 'run'>(() => {
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'app' | 'plan' | 'run'>(() => {
     if (window.location.hash.includes('access_token')) {
       return 'app';
     }
@@ -36,6 +38,9 @@ function MainAppShell() {
   const [activeResearchTopic, setActiveResearchTopic] = useState<string>(
     'Compare solid-state batteries vs lithium-ion for grid-scale energy storage'
   );
+  const [planSubquestions, setPlanSubquestions] = useState<string[]>([]);
+  const [customSubquestions, setCustomSubquestions] = useState<string[] | undefined>(undefined);
+  const [isPlanLoading, setIsPlanLoading] = useState(false);
 
   const handleReplayIntro = () => {
     sessionStorage.removeItem('quorum_intro_seen');
@@ -52,13 +57,48 @@ function MainAppShell() {
     setCurrentView('landing');
   };
 
-  const handleStartResearch = (query: string, options?: { image?: string | null }) => {
+  const handleStartResearch = async (query: string, options?: { image?: string | null }) => {
     setActiveResearchTopic(query);
+
+    // Try to get a plan from the backend first (HITL flow)
+    setIsPlanLoading(true);
+    try {
+      const isOnline = await checkBackendHealth();
+      if (isOnline) {
+        const subs = await generateResearchPlan(query, options?.image || null);
+        if (subs && subs.length > 0) {
+          setPlanSubquestions(subs);
+          setCurrentView('plan');
+          setIsPlanLoading(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Plan generation failed, falling back to direct execution:', err);
+    }
+    setIsPlanLoading(false);
+
+    // Fallback: skip plan review, go directly to run
+    setCustomSubquestions(undefined);
+    setCurrentView('run');
+  };
+
+  const handleConfirmPlan = (editedSubquestions: string[]) => {
+    setCustomSubquestions(editedSubquestions);
     setCurrentView('run');
   };
 
   return (
     <div className="min-h-screen bg-[#09090b] text-[#fafafa] selection:bg-white/20 selection:text-white">
+      {/* Full-screen loading overlay for plan generation */}
+      {isPlanLoading && (
+        <div className="fixed inset-0 z-[100] bg-[#09090b]/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+          <div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-zinc-300 font-mono">Planner Agent decomposing your topic...</p>
+          <p className="text-xs text-zinc-500">This usually takes 3-5 seconds</p>
+        </div>
+      )}
+
       {showIntro ? (
         <IntroScreen
           key={forceReplay}
@@ -81,11 +121,25 @@ function MainAppShell() {
           onStartResearch={handleStartResearch}
           onSignOut={handleSignOut}
         />
+      ) : currentView === 'plan' ? (
+        <PlanReviewView
+          topic={activeResearchTopic}
+          subquestions={planSubquestions}
+          onConfirm={handleConfirmPlan}
+          onBack={() => setCurrentView('app')}
+        />
       ) : (
         <ResearchRunView
           topic={activeResearchTopic}
-          onNewResearch={() => setCurrentView('app')}
-          onBackToWorkspace={() => setCurrentView('app')}
+          customSubquestions={customSubquestions}
+          onNewResearch={() => {
+            setCustomSubquestions(undefined);
+            setCurrentView('app');
+          }}
+          onBackToWorkspace={() => {
+            setCustomSubquestions(undefined);
+            setCurrentView('app');
+          }}
         />
       )}
     </div>
@@ -101,3 +155,4 @@ export default function App() {
     </ThemeProvider>
   );
 }
+

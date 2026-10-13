@@ -5,6 +5,18 @@ from pydantic import BaseModel
 import asyncio
 import json
 import os
+import sys
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -114,6 +126,8 @@ async def execute_research(request: Request):
 
         def run_sync():
             try:
+                from src.agents.base import metrics
+                metrics.start()
                 res = supervisor.execute_research_async(topic, custom_subs)
                 loop.call_soon_threadsafe(queue.put_nowait, {
                     "type": "done", 

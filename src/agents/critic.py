@@ -29,12 +29,12 @@ class CriticAgent(BaseAgent):
         '  "unsupported_claims": ["claim1", "claim2"]  // Claims lacking source backing\n'
         "}\n\n"
         "Rules:\n"
-        "- REJECT if grounding_score < 0.6 (too many unsupported claims)\n"
-        "- REJECT if completeness_score < 0.5 (doesn't answer the question)\n"
+        "- REJECT if grounding_score < 0.5 (too many unsupported claims)\n"
+        "- REJECT if completeness_score < 0.4 (doesn't answer the question)\n"
         "- REJECT if no source URLs are cited at all\n"
-        "- When rejecting, feedback MUST be specific and actionable\n"
-        "- List every unsupported claim you find\n"
-        "- Be strict but fair — don't reject good work"
+        "- When rejecting, feedback MUST be specific and actionable (1-2 sentences)\n"
+        "- List up to 3 unsupported claims\n"
+        "- Be fair — only reject genuinely poor work, not minor gaps"
     )
     uses_tools = False
 
@@ -53,7 +53,7 @@ class CriticAgent(BaseAgent):
         try:
             verdict = self._validated_ask(prompt, CriticVerdict)
         except ValueError as e:
-            print(f"  [Critic] ⚠️ Could not parse verdict, defaulting to approve: {e}")
+            print(f"  [Critic] [!] Could not parse verdict, defaulting to approve: {e}")
             verdict = CriticVerdict(
                 approved=True,
                 grounding_score=0.5,

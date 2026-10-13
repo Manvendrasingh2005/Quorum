@@ -147,3 +147,111 @@ export async function exportReportPdf(topic: string, markdownReport: string): Pr
 
   return await res.blob();
 }
+
+/**
+ * Step 2 (HITL): Stream multi-agent execution with user-edited sub-questions via POST SSE.
+ * Uses fetch + ReadableStream since EventSource only supports GET.
+ */
+export function streamResearchWithPlan(
+  topic: string,
+  customSubquestions: string[],
+  callbacks: StreamCallbacks
+): () => void {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic, custom_subquestions: customSubquestions }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        callbacks.onError(`Backend returned ${res.status}`);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      let hasCompleted = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith('data:')) {
+            const jsonStr = trimmedLine.slice(5).trim();
+            if (!jsonStr) continue;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              if (parsed.type === 'done') {
+                hasCompleted = true;
+                callbacks.onDone({
+                  report: parsed.report,
+                  metrics: parsed.metrics || {},
+                  findings: parsed.findings || [],
+                });
+                return;
+              } else if (parsed.error) {
+                hasCompleted = true;
+                callbacks.onError(parsed.error);
+                return;
+              } else {
+                callbacks.onLog(parsed);
+              }
+            } catch {}
+          }
+        }
+      }
+
+      // Check remaining buffer when reader completes
+      if (buffer.trim()) {
+        const trimmedLine = buffer.trim();
+        if (trimmedLine.startsWith('data:')) {
+          const jsonStr = trimmedLine.slice(5).trim();
+          if (jsonStr) {
+            try {
+              const parsed = JSON.parse(jsonStr);
+              if (parsed.type === 'done') {
+                hasCompleted = true;
+                callbacks.onDone({
+                  report: parsed.report,
+                  metrics: parsed.metrics || {},
+                  findings: parsed.findings || [],
+                });
+                return;
+              } else if (parsed.error) {
+                hasCompleted = true;
+                callbacks.onError(parsed.error);
+                return;
+              } else {
+                callbacks.onLog(parsed);
+              }
+            } catch {}
+          }
+        }
+      }
+
+      if (!hasCompleted && !controller.signal.aborted) {
+        callbacks.onError('Research stream completed without final report');
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        callbacks.onError(err.message || 'Stream connection failed');
+      }
+    }
+  })();
+
+  return () => controller.abort();
+}
+

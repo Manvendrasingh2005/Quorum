@@ -48,7 +48,7 @@ class PlannerAgent(BaseAgent):
             questions = result.sub_questions[:MAX_SUBQUESTIONS]
         except ValueError:
             # If validation completely fails, fall back to using topic directly
-            print(f"  [Planner] ⚠️ Validation failed, using topic as single question.")
+            print(f"  [Planner] [!] Validation failed, using topic as single question.")
             questions = [topic]
 
         metrics.subquestions = len(questions)

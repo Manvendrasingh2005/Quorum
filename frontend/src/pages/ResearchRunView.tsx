@@ -30,6 +30,7 @@ import { saveResearchToSupabase } from '../lib/supabase';
 import {
   checkBackendHealth,
   streamResearchExecution,
+  streamResearchWithPlan,
   exportReportPdf,
   AgentLogMessage,
   DonePayload,
@@ -37,6 +38,7 @@ import {
 
 interface ResearchRunViewProps {
   topic: string;
+  customSubquestions?: string[];
   onNewResearch: () => void;
   onBackToWorkspace: () => void;
 }
@@ -59,6 +61,7 @@ interface SourceItem {
 
 export const ResearchRunView: React.FC<ResearchRunViewProps> = ({
   topic,
+  customSubquestions,
   onNewResearch,
   onBackToWorkspace,
 }) => {
@@ -73,10 +76,22 @@ export const ResearchRunView: React.FC<ResearchRunViewProps> = ({
   const [showCriticFeedbackLoop, setShowCriticFeedbackLoop] = useState(false);
 
   // 4 Agent states
-  const [planner, setPlanner] = useState<AgentState>({
-    status: 'active',
-    logs: ['Initializing multi-angle inquiry...'],
-    metric: 'Deconstructing query',
+  const [planner, setPlanner] = useState<AgentState>(() => {
+    if (customSubquestions && customSubquestions.length > 0) {
+      return {
+        status: 'done',
+        logs: [
+          `Plan confirmed: ${customSubquestions.length} sub-questions approved`,
+          ...customSubquestions.map((q, i) => `${i + 1}. ${q}`),
+        ],
+        metric: `${customSubquestions.length} sub-questions`,
+      };
+    }
+    return {
+      status: 'active',
+      logs: ['Initializing multi-angle inquiry...'],
+      metric: 'Deconstructing query',
+    };
   });
 
   const [researcher, setResearcher] = useState<AgentState>({
@@ -181,22 +196,33 @@ export const ResearchRunView: React.FC<ResearchRunViewProps> = ({
 
     const runFallbackSimulatedSwarm = async () => {
       // PHASE 1: Planner
-      setPlanner({
-        status: 'active',
-        logs: [
-          'Analyzing query taxonomy and core technical metrics...',
-          'Decomposing into 3 critical sub-investigations:',
-          '1. Volumetric vs Gravimetric energy density trade-offs',
-          '2. Dendrite suppression in solid ceramic vs liquid electrolytes',
-          '3. LCOS (Levelized Cost of Storage) projections through 2030',
-        ],
-        metric: '3 sub-questions formed',
-      });
+      if (customSubquestions && customSubquestions.length > 0) {
+        setPlanner({
+          status: 'done',
+          logs: [
+            `Plan confirmed: ${customSubquestions.length} sub-questions approved`,
+            ...customSubquestions.map((q, i) => `${i + 1}. ${q}`),
+          ],
+          metric: `${customSubquestions.length} sub-questions`,
+        });
+      } else {
+        setPlanner({
+          status: 'active',
+          logs: [
+            'Analyzing query taxonomy and core technical metrics...',
+            'Decomposing into 3 critical sub-investigations:',
+            '1. Volumetric vs Gravimetric energy density trade-offs',
+            '2. Dendrite suppression in solid ceramic vs liquid electrolytes',
+            '3. LCOS (Levelized Cost of Storage) projections through 2030',
+          ],
+          metric: '3 sub-questions formed',
+        });
 
-      await new Promise((r) => setTimeout(r, 1600));
-      if (isCancelled) return;
+        await new Promise((r) => setTimeout(r, 1600));
+        if (isCancelled) return;
 
-      setPlanner((prev) => ({ ...prev, status: 'done', metric: 'Plan finalized' }));
+        setPlanner((prev) => ({ ...prev, status: 'done', metric: 'Plan finalized' }));
+      }
 
       // PHASE 2: Researcher starts
       setResearcher({
@@ -341,120 +367,151 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
       if (isCancelled) return;
       setIsLiveBackend(online);
 
-      if (online) {
-        setPlanner({
-          status: 'active',
-          logs: [
-            'Connected to Quorum Live Multi-Agent Backend (127.0.0.1:8000)...',
-            'Planner Agent initiating research taxonomy...',
-          ],
-          metric: 'Deconstructing research topic',
-        });
+      const handleLog = (data: AgentLogMessage) => {
+        if (isCancelled) return;
+        const logMsg = data.status;
 
-        cancelActiveStream = streamResearchExecution(topic, {
-          onLog: (data: AgentLogMessage) => {
-            if (isCancelled) return;
-            const logMsg = data.status;
+        if (data.agent === 'Planner') {
+          setPlanner((prev) => ({
+            status: 'active',
+            logs: [...prev.logs.slice(-7), logMsg],
+            metric: 'Deconstructing research questions',
+          }));
+        } else if (data.agent === 'Researcher') {
+          setPlanner((prev) => ({ ...prev, status: 'done', metric: 'Plan finalized' }));
+          setResearcher((prev) => ({
+            status: 'active',
+            logs: [...prev.logs.slice(-7), logMsg],
+            metric: 'Retrieving primary sources',
+          }));
+        } else if (data.agent === 'Critic') {
+          setCritic((prev) => ({
+            status: 'active',
+            logs: [...prev.logs.slice(-7), logMsg],
+            metric: data.is_rejection ? '⚠️ Rejection triggered' : 'Auditing assertions',
+          }));
 
-            if (data.agent === 'Planner') {
-              setPlanner((prev) => ({
-                status: 'active',
-                logs: [...prev.logs.slice(-7), logMsg],
-                metric: 'Deconstructing research questions',
-              }));
-            } else if (data.agent === 'Researcher') {
-              setPlanner((prev) => ({ ...prev, status: 'done', metric: 'Plan finalized' }));
-              setResearcher((prev) => ({
-                status: 'active',
-                logs: [...prev.logs.slice(-7), logMsg],
-                metric: 'Retrieving primary sources',
-              }));
-            } else if (data.agent === 'Critic') {
-              setCritic((prev) => ({
-                status: 'active',
-                logs: [...prev.logs.slice(-7), logMsg],
-                metric: data.is_rejection ? '⚠️ Rejection triggered' : 'Auditing assertions',
-              }));
-
-              if (data.is_rejection) {
-                setShowCriticFeedbackLoop(true);
-              } else if (data.is_approval) {
-                setShowCriticFeedbackLoop(false);
-              }
-            } else if (data.agent === 'Writer') {
-              setResearcher((prev) => ({ ...prev, status: 'done', metric: 'Sources verified' }));
-              setCritic((prev) => ({ ...prev, status: 'done', metric: 'Claims grounded' }));
-              setWriter((prev) => ({
-                status: 'active',
-                logs: [...prev.logs.slice(-7), logMsg],
-                metric: 'Drafting synthesized report',
-              }));
-            } else {
-              // Supervisor system routing
-              if (logMsg.toLowerCase().includes('researcher')) {
-                setResearcher((prev) => ({
-                  status: 'active',
-                  logs: [...prev.logs.slice(-7), logMsg],
-                }));
-              }
-            }
-          },
-          onDone: (data: DonePayload) => {
-            if (isCancelled) return;
+          if (data.is_rejection) {
+            setShowCriticFeedbackLoop(true);
+          } else if (data.is_approval) {
             setShowCriticFeedbackLoop(false);
-            setPlanner((prev) => ({ ...prev, status: 'done', metric: 'Plan completed' }));
-            setResearcher((prev) => ({ ...prev, status: 'done', metric: 'Search completed' }));
-            setCritic((prev) => ({ ...prev, status: 'done', metric: 'Audited & Grounded' }));
-            setWriter((prev) => ({ ...prev, status: 'done', metric: 'Synthesis complete' }));
+          }
+        } else if (data.agent === 'Writer') {
+          setResearcher((prev) => ({ ...prev, status: 'done', metric: 'Sources verified' }));
+          setCritic((prev) => ({ ...prev, status: 'done', metric: 'Claims grounded' }));
+          setWriter((prev) => ({
+            status: 'active',
+            logs: [...prev.logs.slice(-7), logMsg],
+            metric: 'Drafting synthesized report',
+          }));
+        } else {
+          // Supervisor system routing
+          if (logMsg.toLowerCase().includes('researcher')) {
+            setResearcher((prev) => ({
+              status: 'active',
+              logs: [...prev.logs.slice(-7), logMsg],
+            }));
+          }
+        }
+      };
 
-            const finalReport = data.report || 'Report generation completed.';
-            setReportMarkdown(finalReport);
+      const handleDone = (data: DonePayload) => {
+        if (isCancelled) return;
+        setShowCriticFeedbackLoop(false);
+        setPlanner((prev) => ({ ...prev, status: 'done', metric: 'Plan completed' }));
+        setResearcher((prev) => ({ ...prev, status: 'done', metric: 'Search completed' }));
+        setCritic((prev) => ({ ...prev, status: 'done', metric: 'Audited & Grounded' }));
+        setWriter((prev) => ({ ...prev, status: 'done', metric: 'Synthesis complete' }));
 
-            // Extract structured sources from findings
-            const extractedSources: SourceItem[] = [];
-            let sourceId = 1;
+        const finalReport = data.report || 'Report generation completed.';
+        setReportMarkdown(finalReport);
 
-            if (Array.isArray(data.findings) && data.findings.length > 0) {
-              data.findings.forEach((finding) => {
-                const urlMatches = finding.answer.match(/https?:\/\/[^\s)\]]+/g) || [];
-                if (urlMatches.length > 0) {
-                  urlMatches.forEach((url) => {
-                    try {
-                      const domain = new URL(url).hostname.replace('www.', '');
-                      if (!extractedSources.some((s) => s.url === url)) {
-                        extractedSources.push({
-                          id: sourceId++,
-                          title: `Source: ${finding.question.slice(0, 48)}...`,
-                          url,
-                          domain,
-                          snippet: finding.answer.slice(0, 150) + '...',
-                        });
-                      }
-                    } catch {}
-                  });
-                }
+        // Extract structured sources from findings
+        const extractedSources: SourceItem[] = [];
+        let sourceId = 1;
+
+        if (Array.isArray(data.findings) && data.findings.length > 0) {
+          data.findings.forEach((finding) => {
+            const urlMatches = finding.answer.match(/https?:\/\/[^\s)\]]+/g) || [];
+            if (urlMatches.length > 0) {
+              urlMatches.forEach((url) => {
+                try {
+                  const domain = new URL(url).hostname.replace('www.', '');
+                  if (!extractedSources.some((s) => s.url === url)) {
+                    extractedSources.push({
+                      id: sourceId++,
+                      title: `Source: ${finding.question.slice(0, 48)}...`,
+                      url,
+                      domain,
+                      snippet: finding.answer.slice(0, 150) + '...',
+                    });
+                  }
+                } catch {}
               });
             }
+          });
+        }
 
-            const activeSources = extractedSources.length > 0 ? extractedSources : defaultSourceList;
-            setSources(activeSources);
-            setIsCompleted(true);
-            setAgentsCollapsed(true);
+        const activeSources = extractedSources.length > 0 ? extractedSources : defaultSourceList;
+        setSources(activeSources);
+        setIsCompleted(true);
+        setAgentsCollapsed(true);
 
-            // Persist verified research run to Supabase
-            saveResearchToSupabase({
-              topic,
-              reportMarkdown: finalReport,
-              sources: activeSources,
-              citationsCount: activeSources.length,
-            }).catch((err) => console.warn('Supabase save error:', err));
-          },
-          onError: (errorMsg: string) => {
-            console.warn('Backend SSE connection error, falling back to local swarm:', errorMsg);
-            setIsLiveBackend(false);
-            runFallbackSimulatedSwarm();
-          },
-        });
+        // Persist verified research run to Supabase
+        saveResearchToSupabase({
+          topic,
+          reportMarkdown: finalReport,
+          sources: activeSources,
+          citationsCount: activeSources.length,
+        }).catch((err) => console.warn('Supabase save error:', err));
+      };
+
+      const handleError = (errorMsg: string) => {
+        console.warn('Backend SSE connection error, falling back to local swarm:', errorMsg);
+        setIsLiveBackend(false);
+        runFallbackSimulatedSwarm();
+      };
+
+      if (online) {
+        if (customSubquestions && customSubquestions.length > 0) {
+          setPlanner({
+            status: 'done',
+            logs: [
+              `Plan confirmed: ${customSubquestions.length} sub-questions approved`,
+              ...customSubquestions.map((q, i) => `${i + 1}. ${q}`),
+            ],
+            metric: `${customSubquestions.length} sub-questions`,
+          });
+          setResearcher({
+            status: 'active',
+            logs: [
+              'Connected to Quorum Live Multi-Agent Backend (127.0.0.1:8000)...',
+              `Dispatching ${customSubquestions.length} researchers concurrently...`,
+            ],
+            metric: `Researching ${customSubquestions.length} questions`,
+          });
+
+          cancelActiveStream = streamResearchWithPlan(topic, customSubquestions, {
+            onLog: handleLog,
+            onDone: handleDone,
+            onError: handleError,
+          });
+        } else {
+          setPlanner({
+            status: 'active',
+            logs: [
+              'Connected to Quorum Live Multi-Agent Backend (127.0.0.1:8000)...',
+              'Planner Agent initiating research taxonomy...',
+            ],
+            metric: 'Deconstructing research topic',
+          });
+
+          cancelActiveStream = streamResearchExecution(topic, {
+            onLog: handleLog,
+            onDone: handleDone,
+            onError: handleError,
+          });
+        }
       } else {
         // Fallback to simulated swarm
         runFallbackSimulatedSwarm();
@@ -467,7 +524,7 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
       isCancelled = true;
       if (cancelActiveStream) cancelActiveStream();
     };
-  }, [topic]);
+  }, [topic, customSubquestions]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);

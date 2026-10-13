@@ -10,6 +10,17 @@ Handles:
 import json
 import time
 import re
+import sys
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 from google import genai
 from google.genai import types, errors
 from pydantic import BaseModel, ValidationError
@@ -97,9 +108,9 @@ class RunMetrics:
 
     def summary(self) -> str:
         return (
-            f"\n{'─' * 40}\n"
+            f"\n{'-' * 40}\n"
             f"  Run Metrics\n"
-            f"{'─' * 40}\n"
+            f"{'-' * 40}\n"
             f"  Total time:         {self.elapsed():.1f}s\n"
             f"  Sub-questions:      {self.subquestions}\n"
             f"  Model calls:        {self.model_calls}\n"
@@ -110,7 +121,7 @@ class RunMetrics:
             f"  Schema retries:     {self.schema_retries}\n"
             f"  Fallback switches:  {self.fallback_events}\n"
             f"  Same-model retries: {self.retry_events}\n"
-            f"{'─' * 40}\n"
+            f"{'-' * 40}\n"
         )
 
 
@@ -132,6 +143,7 @@ class BaseAgent:
     role: str = "base"
     system_prompt: str = "You are a helpful assistant."
     uses_tools: bool = False
+    max_output_tokens: int | None = None  # Override in subclass to cap generation
 
     def _get_config(self) -> types.GenerateContentConfig:
         """Build the GenerateContentConfig for this agent's role."""
@@ -145,6 +157,8 @@ class BaseAgent:
         else:
             cfg = types.GenerateContentConfig()
         cfg.system_instruction = self.system_prompt
+        if self.max_output_tokens:
+            cfg.max_output_tokens = self.max_output_tokens
         return cfg
 
     def _call_model(self, contents: list[types.Content]) -> types.GenerateContentResponse:
@@ -167,7 +181,7 @@ class BaseAgent:
                 except errors.ServerError as e:
                     last_error = e
                     if attempt + 1 < MODEL_ATTEMPTS:
-                        wait = 2 ** attempt * 2
+                        wait = 2  # flat 2s wait for speed
                         print(f"    [{self.role}] {model} busy ({e.code}), retrying in {wait}s...")
                         metrics.retry_events += 1
                         time.sleep(wait)
@@ -192,9 +206,10 @@ class BaseAgent:
         import base64
         parts = []
         if image_data:
+            raw_b64 = image_data.split(",", 1)[1] if "," in image_data else image_data
             parts.append(
                 types.Part.from_bytes(
-                    data=base64.b64decode(image_data),
+                    data=base64.b64decode(raw_b64),
                     mime_type="image/jpeg",
                 )
             )
@@ -220,7 +235,7 @@ class BaseAgent:
             for fc in response.function_calls:
                 # GenAI sometimes returns None for args instead of an empty dict
                 args = fc.args or {}
-                print(f"    [{self.role}] 🔍 searching: {dict(args)}")
+                print(f"    [{self.role}] [search] searching: {dict(args)}")
                 metrics.search_calls += 1
                 try:
                     output = TOOL_FUNCTIONS[fc.name](**args)
@@ -234,7 +249,10 @@ class BaseAgent:
 
             contents.append(types.Content(role="user", parts=result_parts))
 
-        return "Could not complete research within step limit."
+        # Tool step limit reached; prompt model for final synthesis using the search results collected
+        contents.append(types.Content(role="user", parts=[types.Part(text="Synthesize your findings from the searches above into a concise, factual answer with inline source URL citations.")]))
+        final_response = self._call_model(contents)
+        return final_response.text
 
     def _extract_json(self, text: str) -> str:
         """Strip markdown fences and extract JSON from model output."""
@@ -280,10 +298,10 @@ class BaseAgent:
                 return schema.model_validate(data)
             except json.JSONDecodeError as e:
                 validation_error = f"Invalid JSON: {e}"
-                print(f"    [{self.role}] ⚠️ JSON parse failed (attempt {attempt + 1}): {e}")
+                print(f"    [{self.role}] [!] JSON parse failed (attempt {attempt + 1}): {e}")
             except ValidationError as e:
                 validation_error = str(e)
-                print(f"    [{self.role}] ⚠️ Schema validation failed (attempt {attempt + 1})")
+                print(f"    [{self.role}] [!] Schema validation failed (attempt {attempt + 1})")
 
         # If all retries exhausted, raise
         raise ValueError(

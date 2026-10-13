@@ -37,11 +37,14 @@ class Supervisor:
         self.researcher = ResearcherAgent()
         self.critic = CriticAgent()
         self.writer = WriterAgent()
-        self._status = on_status or (lambda msg: print(msg))
+        self._status = on_status or (lambda msg: None)
 
     def _log(self, msg: str):
         """Print and optionally callback with status."""
-        print(msg)
+        try:
+            print(msg)
+        except UnicodeEncodeError:
+            print(msg.encode('ascii', errors='replace').decode('ascii'))
         self._status(msg)
 
     def _research_with_critic_loop(
@@ -117,9 +120,9 @@ class Supervisor:
         Use run_async() for concurrent researchers.
         """
         metrics.start()
-        self._log(f"\n{'═' * 50}")
+        self._log(f"\n{'=' * 50}")
         self._log(f"[Supervisor] Starting research: {topic}")
-        self._log(f"{'═' * 50}\n")
+        self._log(f"{'=' * 50}\n")
 
         # Step 1: Plan
         self._log("[Supervisor] → Planner Agent")
@@ -132,17 +135,17 @@ class Supervisor:
         approved_findings: dict[str, str] = {}
 
         for i, q in enumerate(subquestions, 1):
-            self._log(f"\n{'─' * 40}")
+            self._log(f"\n{'-' * 40}")
             finding = self._research_with_critic_loop(q, i, len(subquestions))
             findings.append(finding)
             approved_findings[q] = finding.answer
 
         # Step 3: Write
-        self._log(f"\n{'─' * 40}")
+        self._log(f"\n{'-' * 40}")
         self._log(f"[Supervisor] → Writer Agent (synthesizing {len(findings)} findings)")
         report = self.writer.synthesize(topic, approved_findings)
 
-        self._log(f"\n{'═' * 50}")
+        self._log(f"\n{'=' * 50}")
         self._log(f"[Supervisor] ✅ Research complete!")
         self._log(metrics.summary())
 
@@ -160,9 +163,9 @@ class Supervisor:
 
     def plan_research(self, topic: str, base64_image: str | None = None) -> list[str]:
         metrics.start()
-        self._log(f"\n{'═' * 50}")
+        self._log(f"\n{'=' * 50}")
         self._log(f"[Supervisor] Starting research planning: {topic or 'Analyzing image...'}")
-        self._log(f"{'═' * 50}\n")
+        self._log(f"{'=' * 50}\n")
         self._log("[Supervisor] → Planner Agent")
         subquestions = self.planner.plan(topic, base64_image)
         for i, q in enumerate(subquestions, 1):
@@ -170,6 +173,9 @@ class Supervisor:
         return subquestions
 
     def execute_research_async(self, topic: str, subquestions: list[str]) -> ResearchReport:
+        if metrics.start_time is None:
+            metrics.start()
+        metrics.subquestions = len(subquestions)
         # Step 2: Research + Critic loop (concurrent)
         self._log(f"\n[Supervisor] Dispatching {len(subquestions)} researchers concurrently...")
 
@@ -202,12 +208,12 @@ class Supervisor:
                     ))
 
         # Step 3: Write
-        self._log(f"\n{'─' * 40}")
+        self._log(f"\n{'-' * 40}")
         self._log(f"[Supervisor] → Writer Agent (synthesizing {len(findings)} findings)")
         report = self.writer.synthesize(topic, approved_findings)
 
-        self._log(f"\n{'═' * 50}")
-        self._log(f"[Supervisor] ✅ ASYNC research complete!")
+        self._log(f"\n{'=' * 50}")
+        self._log(f"[Supervisor] ASYNC research complete!")
         self._log(metrics.summary())
 
         final_report = ResearchReport(

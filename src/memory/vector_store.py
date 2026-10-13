@@ -29,9 +29,9 @@ class VectorMemory:
                 embedding_function=gemini_ef,
                 metadata={"hnsw:space": "cosine"} # Use cosine similarity for text meaning
             )
-            print("✅ ChromaDB initialized using fast Gemini API Embeddings.")
+            print("[ChromaDB] Initialized using fast Gemini API Embeddings.")
         except Exception as e:
-            print(f"⚠️ Failed to init ChromaDB: {e}. Running without memory.")
+            print(f"[ChromaDB] Warning: Failed to init ChromaDB: {e}. Running without memory.")
             self.collection = None
 
     def check_memory(self, question: str, max_distance: float = 0.25) -> str | None:
