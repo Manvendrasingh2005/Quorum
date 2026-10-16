@@ -24,6 +24,9 @@ class ResearcherAgent(BaseAgent):
     )
     uses_tools = True
 
+    def __init__(self, metrics_instance: RunMetrics | None = None):
+        super().__init__(metrics_instance=metrics_instance)
+
     def research(
         self,
         question: str,
@@ -38,7 +41,7 @@ class ResearcherAgent(BaseAgent):
                 "You MUST address this feedback in your revised research. "
                 "Search again if needed to find better sources."
             )
-            metrics.log_message("supervisor", "researcher", "feedback",
+            self.metrics.log_message("supervisor", "researcher", "feedback",
                                 f"Revision requested: {critic_feedback[:100]}...")
             answer = self._ask_with_tools(prompt)
         else:
@@ -47,16 +50,16 @@ class ResearcherAgent(BaseAgent):
             
             cached_answer = memory.check_memory(question)
             if cached_answer:
-                metrics.memory_hits += 1
-                metrics.log_message("researcher", "supervisor", "result",
+                self.metrics.inc_memory_hits()
+                self.metrics.log_message("researcher", "supervisor", "result",
                                     "✨ Memory Hit! Retrieved past verified research.")
                 return f"[MEMORY CACHE_HIT]\n{cached_answer}"
 
             prompt = question
-            metrics.log_message("supervisor", "researcher", "task", question[:100])
+            self.metrics.log_message("supervisor", "researcher", "task", question[:100])
             answer = self._ask_with_tools(prompt)
 
-        metrics.log_message("researcher", "supervisor", "result",
+        self.metrics.log_message("researcher", "supervisor", "result",
                             f"Completed research ({len(answer)} chars)")
 
         return answer

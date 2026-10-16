@@ -24,6 +24,9 @@ class PlannerAgent(BaseAgent):
     )
     uses_tools = False
 
+    def __init__(self, metrics_instance: RunMetrics | None = None):
+        super().__init__(metrics_instance=metrics_instance)
+
     def plan(self, topic: str, base64_image: str | None = None) -> list[str]:
         """Break a topic into sub-questions. Returns validated list."""
         
@@ -51,8 +54,8 @@ class PlannerAgent(BaseAgent):
             print(f"  [Planner] [!] Validation failed, using topic as single question.")
             questions = [topic]
 
-        metrics.subquestions = len(questions)
-        metrics.log_message("planner", "supervisor", "result",
+        self.metrics.set_subquestions(len(questions))
+        self.metrics.log_message("planner", "supervisor", "result",
                             f"Decomposed into {len(questions)} sub-questions")
 
         return questions

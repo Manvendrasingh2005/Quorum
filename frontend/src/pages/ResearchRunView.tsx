@@ -466,6 +466,16 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
         }).catch((err) => console.warn('Supabase save error:', err));
       };
 
+      const handleChunk = (chunk: string) => {
+        if (isCancelled) return;
+        setReportMarkdown((prev) => prev + chunk);
+        setWriter((prev) => ({
+          status: 'active',
+          logs: prev.logs.length === 0 ? ['Synthesizing findings into live dossier...'] : prev.logs,
+          metric: 'Streaming live dossier tokens...',
+        }));
+      };
+
       const handleError = (errorMsg: string) => {
         console.warn('Backend SSE connection error, falling back to local swarm:', errorMsg);
         setIsLiveBackend(false);
@@ -493,6 +503,7 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
 
           cancelActiveStream = streamResearchWithPlan(topic, customSubquestions, {
             onLog: handleLog,
+            onChunk: handleChunk,
             onDone: handleDone,
             onError: handleError,
           });
@@ -508,6 +519,7 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
 
           cancelActiveStream = streamResearchExecution(topic, {
             onLog: handleLog,
+            onChunk: handleChunk,
             onDone: handleDone,
             onError: handleError,
           });
@@ -855,7 +867,7 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
         </section>
 
         {/* ================= 4. FINAL REPORT & SOURCES SECTION ================= */}
-        {isCompleted && (
+        {(isCompleted || reportMarkdown.length > 0) && (
           <motion.section
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -865,9 +877,18 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
             {/* Action Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
               <div className="text-left space-y-0.5">
-                <div className="inline-flex items-center gap-1.5 text-xs font-mono uppercase text-emerald-400">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Dossier Verified & Synthesized</span>
+                <div className="inline-flex items-center gap-1.5 text-xs font-mono uppercase">
+                  {isCompleted ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-400">Dossier Verified & Synthesized</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-teal-400 animate-ping" />
+                      <span className="text-teal-300">Live Writer Streaming...</span>
+                    </>
+                  )}
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
                   Verified Research Intelligence

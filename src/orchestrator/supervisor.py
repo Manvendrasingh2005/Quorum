@@ -11,7 +11,7 @@ import asyncio
 import concurrent.futures
 from typing import Callable
 
-from src.agents.base import metrics
+from src.agents.base import RunMetrics, metrics
 from src.agents.planner import PlannerAgent
 from src.agents.researcher import ResearcherAgent
 from src.agents.critic import CriticAgent
@@ -27,17 +27,25 @@ class Supervisor:
     retry limits, and manages the research pipeline.
     """
 
-    def __init__(self, on_status: Callable[[str], None] | None = None):
+    def __init__(
+        self,
+        on_status: Callable[[str], None] | None = None,
+        on_report_chunk: Callable[[str], None] | None = None,
+        metrics_instance: RunMetrics | None = None,
+    ):
         """
         Args:
-            on_status: Optional callback for status updates (used by Streamlit UI).
-                       Called with a status string whenever something notable happens.
+            on_status: Optional callback for status log updates.
+            on_report_chunk: Optional callback for live writer streaming tokens.
+            metrics_instance: Optional session-isolated metrics container.
         """
-        self.planner = PlannerAgent()
-        self.researcher = ResearcherAgent()
-        self.critic = CriticAgent()
-        self.writer = WriterAgent()
+        self.metrics = metrics_instance or RunMetrics()
+        self.planner = PlannerAgent(metrics_instance=self.metrics)
+        self.researcher = ResearcherAgent(metrics_instance=self.metrics)
+        self.critic = CriticAgent(metrics_instance=self.metrics)
+        self.writer = WriterAgent(metrics_instance=self.metrics)
         self._status = on_status or (lambda msg: None)
+        self._on_chunk = on_report_chunk
 
     def _log(self, msg: str):
         """Print and optionally callback with status."""
@@ -119,7 +127,7 @@ class Supervisor:
         Run the full multi-agent pipeline SEQUENTIALLY.
         Use run_async() for concurrent researchers.
         """
-        metrics.start()
+        self.metrics.start()
         self._log(f"\n{'=' * 50}")
         self._log(f"[Supervisor] Starting research: {topic}")
         self._log(f"{'=' * 50}\n")
@@ -143,17 +151,20 @@ class Supervisor:
         # Step 3: Write
         self._log(f"\n{'-' * 40}")
         self._log(f"[Supervisor] → Writer Agent (synthesizing {len(findings)} findings)")
-        report = self.writer.synthesize(topic, approved_findings)
+        if self._on_chunk:
+            report = self.writer.synthesize_stream(topic, approved_findings, on_chunk=self._on_chunk)
+        else:
+            report = self.writer.synthesize(topic, approved_findings)
 
         self._log(f"\n{'=' * 50}")
         self._log(f"[Supervisor] ✅ Research complete!")
-        self._log(metrics.summary())
+        self._log(self.metrics.summary())
 
         final_report = ResearchReport(
             topic=topic,
             report=report,
             findings=findings,
-            metrics=metrics.to_dict(),
+            metrics=self.metrics.to_dict(),
         )
         
         # PERSIST SESSION
@@ -162,7 +173,7 @@ class Supervisor:
         return final_report
 
     def plan_research(self, topic: str, base64_image: str | None = None) -> list[str]:
-        metrics.start()
+        self.metrics.start()
         self._log(f"\n{'=' * 50}")
         self._log(f"[Supervisor] Starting research planning: {topic or 'Analyzing image...'}")
         self._log(f"{'=' * 50}\n")
@@ -173,9 +184,9 @@ class Supervisor:
         return subquestions
 
     def execute_research_async(self, topic: str, subquestions: list[str]) -> ResearchReport:
-        if metrics.start_time is None:
-            metrics.start()
-        metrics.subquestions = len(subquestions)
+        if self.metrics.start_time is None:
+            self.metrics.start()
+        self.metrics.set_subquestions(len(subquestions))
         # Step 2: Research + Critic loop (concurrent)
         self._log(f"\n[Supervisor] Dispatching {len(subquestions)} researchers concurrently...")
 
@@ -210,17 +221,20 @@ class Supervisor:
         # Step 3: Write
         self._log(f"\n{'-' * 40}")
         self._log(f"[Supervisor] → Writer Agent (synthesizing {len(findings)} findings)")
-        report = self.writer.synthesize(topic, approved_findings)
+        if self._on_chunk:
+            report = self.writer.synthesize_stream(topic, approved_findings, on_chunk=self._on_chunk)
+        else:
+            report = self.writer.synthesize(topic, approved_findings)
 
         self._log(f"\n{'=' * 50}")
         self._log(f"[Supervisor] ASYNC research complete!")
-        self._log(metrics.summary())
+        self._log(self.metrics.summary())
 
         final_report = ResearchReport(
             topic=topic,
             report=report,
             findings=findings,
-            metrics=metrics.to_dict(),
+            metrics=self.metrics.to_dict(),
         )
         
         # PERSIST SESSION

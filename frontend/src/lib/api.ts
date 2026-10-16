@@ -34,6 +34,7 @@ export interface DonePayload {
 
 export interface StreamCallbacks {
   onLog: (data: AgentLogMessage) => void;
+  onChunk?: (chunk: string) => void;
   onDone: (data: DonePayload) => void;
   onError: (errorMsg: string) => void;
 }
@@ -90,6 +91,17 @@ export function streamResearchExecution(
 ): () => void {
   const url = `${API_BASE}/api/stream?topic=${encodeURIComponent(topic)}`;
   const eventSource = new EventSource(url);
+
+  eventSource.addEventListener('report_chunk', (event: MessageEvent) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      if (parsed.chunk !== undefined && callbacks.onChunk) {
+        callbacks.onChunk(parsed.chunk);
+      }
+    } catch (err) {
+      console.warn('Failed to parse SSE report_chunk:', err);
+    }
+  });
 
   eventSource.addEventListener('agent_log', (event: MessageEvent) => {
     try {
@@ -202,6 +214,8 @@ export function streamResearchWithPlan(
                   findings: parsed.findings || [],
                 });
                 return;
+              } else if (parsed.chunk !== undefined) {
+                callbacks.onChunk?.(parsed.chunk);
               } else if (parsed.error) {
                 hasCompleted = true;
                 callbacks.onError(parsed.error);
@@ -230,6 +244,8 @@ export function streamResearchWithPlan(
                   findings: parsed.findings || [],
                 });
                 return;
+              } else if (parsed.chunk !== undefined) {
+                callbacks.onChunk?.(parsed.chunk);
               } else if (parsed.error) {
                 hasCompleted = true;
                 callbacks.onError(parsed.error);

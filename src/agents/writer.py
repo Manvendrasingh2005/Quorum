@@ -5,7 +5,8 @@ This agent only receives APPROVED research — work that has passed
 the Critic's quality review. It merges overlapping points and
 preserves citations.
 """
-from src.agents.base import BaseAgent, metrics
+from typing import Callable
+from src.agents.base import BaseAgent, RunMetrics, metrics
 
 
 class WriterAgent(BaseAgent):
@@ -27,16 +28,17 @@ class WriterAgent(BaseAgent):
     uses_tools = False
     max_output_tokens = 1500  # Cap generation to prevent 3000+ word essays
 
-    def synthesize(self, topic: str, findings: dict[str, str]) -> str:
-        """Write the final report from approved findings."""
-        # Truncate each finding to 1500 chars to reduce input tokens
+    def __init__(self, metrics_instance: RunMetrics | None = None):
+        super().__init__(metrics_instance=metrics_instance)
+
+    def _build_prompt(self, topic: str, findings: dict[str, str]) -> str:
         MAX_FINDING_CHARS = 1500
         findings_text = "\n\n---\n\n".join(
             f"**Sub-question:** {q}\n\n**Key findings:**\n{a[:MAX_FINDING_CHARS]}"
             for q, a in findings.items()
         )
 
-        prompt = (
+        return (
             f"Write a CONCISE research report (600-800 words) on:\n"
             f"\"{topic}\"\n\n"
             f"Based on these Critic-approved research findings:\n\n"
@@ -46,13 +48,49 @@ class WriterAgent(BaseAgent):
             "Preserve source URL citations. Be direct and dense."
         )
 
-        metrics.log_message("supervisor", "writer", "task",
+    def synthesize(self, topic: str, findings: dict[str, str]) -> str:
+        """Write the final report from approved findings synchronously."""
+        prompt = self._build_prompt(topic, findings)
+
+        self.metrics.log_message("supervisor", "writer", "task",
                             f"Synthesize report from {len(findings)} findings")
 
         response = self._ask(prompt)
         report = response.text
 
-        metrics.log_message("writer", "supervisor", "result",
+        self.metrics.log_message("writer", "supervisor", "result",
                             f"Report complete ({len(report)} chars)")
 
         return report
+
+    def synthesize_stream(
+        self,
+        topic: str,
+        findings: dict[str, str],
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> str:
+        """Stream the final report token-by-token with real-time chunk callbacks."""
+        prompt = self._build_prompt(topic, findings)
+
+        self.metrics.log_message("supervisor", "writer", "task",
+                            f"Live streaming report from {len(findings)} findings")
+
+        accumulated = []
+        try:
+            stream = self._ask_stream(prompt)
+            for chunk in stream:
+                text_part = chunk.text or ""
+                if text_part:
+                    accumulated.append(text_part)
+                    if on_chunk:
+                        on_chunk(text_part)
+            report = "".join(accumulated)
+        except Exception as e:
+            print(f"  [Writer] [!] Stream failed, falling back to sync call: {e}")
+            report = self.synthesize(topic, findings)
+
+        self.metrics.log_message("writer", "supervisor", "result",
+                            f"Report complete ({len(report)} chars)")
+
+        return report
+

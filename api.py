@@ -121,13 +121,17 @@ async def execute_research(request: Request):
         except Exception:
             pass
 
+    def on_chunk_callback(chunk: str):
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, {"type": "report_chunk", "chunk": chunk})
+        except Exception:
+            pass
+
     async def event_generator():
-        supervisor = Supervisor(on_status=on_status_callback)
+        supervisor = Supervisor(on_status=on_status_callback, on_report_chunk=on_chunk_callback)
 
         def run_sync():
             try:
-                from src.agents.base import metrics
-                metrics.start()
                 res = supervisor.execute_research_async(topic, custom_subs)
                 loop.call_soon_threadsafe(queue.put_nowait, {
                     "type": "done", 
@@ -144,7 +148,12 @@ async def execute_research(request: Request):
         while True:
             msg = await queue.get()
             if isinstance(msg, dict):
-                if msg.get("type") == "done":
+                if msg.get("type") == "report_chunk":
+                    yield {
+                        "event": "report_chunk",
+                        "data": json.dumps({"chunk": msg["chunk"]}),
+                    }
+                elif msg.get("type") == "done":
                     yield {
                         "event": "agent_log",
                         "data": json.dumps({
@@ -182,8 +191,14 @@ async def stream_research_get(topic: str, request: Request):
         except Exception:
             pass
 
+    def on_chunk_callback(chunk: str):
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, {"type": "report_chunk", "chunk": chunk})
+        except Exception:
+            pass
+
     async def event_generator():
-        supervisor = Supervisor(on_status=on_status_callback)
+        supervisor = Supervisor(on_status=on_status_callback, on_report_chunk=on_chunk_callback)
 
         def run_sync():
             try:
@@ -202,7 +217,12 @@ async def stream_research_get(topic: str, request: Request):
         while True:
             msg = await queue.get()
             if isinstance(msg, dict):
-                if msg.get("type") == "done":
+                if msg.get("type") == "report_chunk":
+                    yield {
+                        "event": "report_chunk",
+                        "data": json.dumps({"chunk": msg["chunk"]}),
+                    }
+                elif msg.get("type") == "done":
                     yield {
                         "event": "agent_log",
                         "data": json.dumps({

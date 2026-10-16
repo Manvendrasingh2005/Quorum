@@ -38,6 +38,9 @@ class CriticAgent(BaseAgent):
     )
     uses_tools = False
 
+    def __init__(self, metrics_instance: RunMetrics | None = None):
+        super().__init__(metrics_instance=metrics_instance)
+
     def review(self, question: str, researcher_answer: str) -> CriticVerdict:
         """
         Review a Researcher's answer. Returns a validated CriticVerdict.
@@ -65,13 +68,13 @@ class CriticAgent(BaseAgent):
 
         # Track metrics
         if verdict.approved:
-            metrics.critic_approvals += 1
-            metrics.log_message("critic", "supervisor", "approval",
+            self.metrics.inc_critic_approvals()
+            self.metrics.log_message("critic", "supervisor", "approval",
                                 f"✅ Approved (grounding={verdict.grounding_score:.1f}, "
                                 f"completeness={verdict.completeness_score:.1f})")
         else:
-            metrics.critic_rejections += 1
-            metrics.log_message("critic", "supervisor", "rejection",
+            self.metrics.inc_critic_rejections()
+            self.metrics.log_message("critic", "supervisor", "rejection",
                                 f"❌ Rejected: {verdict.feedback[:100]}")
 
         return verdict

@@ -11,6 +11,7 @@ import json
 import time
 import re
 import sys
+import threading
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -45,87 +46,131 @@ TOOL_FUNCTIONS = {
 _client = genai.Client(api_key=GEMINI_API_KEY)
 
 
-# ── Metrics (singleton, shared across all agents) ─────────────────────────────
+# ── Metrics (Thread-Safe, Session-Scoped) ────────────────────────────────────
 class RunMetrics:
     """Tracks everything measurable about a research run."""
 
     def __init__(self):
+        self._lock = threading.Lock()
         self.reset()
 
     def reset(self):
-        self.start_time: float | None = None
-        self.model_calls: int = 0
-        self.search_calls: int = 0
-        self.fallback_events: int = 0
-        self.retry_events: int = 0
-        self.critic_rejections: int = 0
-        self.critic_approvals: int = 0
-        self.schema_retries: int = 0
-        self.memory_hits: int = 0
-        self.subquestions: int = 0
-        self.model_used_by_role: dict[str, dict[str, int]] = {}
-        self.agent_messages: list[dict] = []  # log of inter-agent communication
+        with getattr(self, '_lock', threading.Lock()):
+            self.start_time: float | None = None
+            self.model_calls: int = 0
+            self.search_calls: int = 0
+            self.fallback_events: int = 0
+            self.retry_events: int = 0
+            self.critic_rejections: int = 0
+            self.critic_approvals: int = 0
+            self.schema_retries: int = 0
+            self.memory_hits: int = 0
+            self.subquestions: int = 0
+            self.model_used_by_role: dict[str, dict[str, int]] = {}
+            self.agent_messages: list[dict] = []  # log of inter-agent communication
 
     def start(self):
         self.reset()
-        self.start_time = time.monotonic()
+        with self._lock:
+            self.start_time = time.monotonic()
 
     def elapsed(self) -> float:
-        if self.start_time is None:
-            return 0.0
-        return time.monotonic() - self.start_time
+        with self._lock:
+            if self.start_time is None:
+                return 0.0
+            return time.monotonic() - self.start_time
+
+    def inc_model_calls(self):
+        with self._lock:
+            self.model_calls += 1
+
+    def inc_search_calls(self):
+        with self._lock:
+            self.search_calls += 1
+
+    def inc_fallback_events(self):
+        with self._lock:
+            self.fallback_events += 1
+
+    def inc_retry_events(self):
+        with self._lock:
+            self.retry_events += 1
+
+    def inc_critic_rejections(self):
+        with self._lock:
+            self.critic_rejections += 1
+
+    def inc_critic_approvals(self):
+        with self._lock:
+            self.critic_approvals += 1
+
+    def inc_schema_retries(self):
+        with self._lock:
+            self.schema_retries += 1
+
+    def inc_memory_hits(self):
+        with self._lock:
+            self.memory_hits += 1
+
+    def set_subquestions(self, count: int):
+        with self._lock:
+            self.subquestions = count
 
     def record_model_use(self, role: str, model: str):
-        self.model_used_by_role.setdefault(role, {})
-        self.model_used_by_role[role][model] = (
-            self.model_used_by_role[role].get(model, 0) + 1
-        )
+        with self._lock:
+            self.model_used_by_role.setdefault(role, {})
+            self.model_used_by_role[role][model] = (
+                self.model_used_by_role[role].get(model, 0) + 1
+            )
 
     def log_message(self, sender: str, receiver: str, msg_type: str, summary: str):
         """Log inter-agent communication for UI visualization."""
-        self.agent_messages.append({
-            "time": self.elapsed(),
-            "sender": sender,
-            "receiver": receiver,
-            "type": msg_type,
-            "summary": summary,
-        })
+        with self._lock:
+            self.agent_messages.append({
+                "time": round(self.elapsed(), 2),
+                "sender": sender,
+                "receiver": receiver,
+                "type": msg_type,
+                "summary": summary,
+            })
 
     def to_dict(self) -> dict:
-        return {
-            "total_time": round(self.elapsed(), 1),
-            "model_calls": self.model_calls,
-            "search_calls": self.search_calls,
-            "fallback_events": self.fallback_events,
-            "retry_events": self.retry_events,
-            "critic_rejections": self.critic_rejections,
-            "critic_approvals": self.critic_approvals,
-            "schema_retries": self.schema_retries,
-            "memory_hits": self.memory_hits,
-            "subquestions": self.subquestions,
-            "model_usage_by_role": self.model_used_by_role,
-        }
+        with self._lock:
+            return {
+                "total_time": round(self.elapsed(), 1),
+                "model_calls": self.model_calls,
+                "search_calls": self.search_calls,
+                "fallback_events": self.fallback_events,
+                "retry_events": self.retry_events,
+                "critic_rejections": self.critic_rejections,
+                "critic_approvals": self.critic_approvals,
+                "schema_retries": self.schema_retries,
+                "memory_hits": self.memory_hits,
+                "subquestions": self.subquestions,
+                "model_usage_by_role": {k: dict(v) for k, v in self.model_used_by_role.items()},
+            }
 
     def summary(self) -> str:
-        return (
-            f"\n{'-' * 40}\n"
-            f"  Run Metrics\n"
-            f"{'-' * 40}\n"
-            f"  Total time:         {self.elapsed():.1f}s\n"
-            f"  Sub-questions:      {self.subquestions}\n"
-            f"  Model calls:        {self.model_calls}\n"
-            f"  Search calls:       {self.search_calls}\n"
-            f"  Critic approvals:   {self.critic_approvals}\n"
-            f"  Critic rejections:  {self.critic_rejections}\n"
-            f"  Memory hits:        {self.memory_hits}\n"
-            f"  Schema retries:     {self.schema_retries}\n"
-            f"  Fallback switches:  {self.fallback_events}\n"
-            f"  Same-model retries: {self.retry_events}\n"
-            f"{'-' * 40}\n"
-        )
+        with self._lock:
+            return (
+                f"\n{'-' * 40}\n"
+                f"  Run Metrics\n"
+                f"{'-' * 40}\n"
+                f"  Total time:         {self.elapsed():.1f}s\n"
+                f"  Sub-questions:      {self.subquestions}\n"
+                f"  Model calls:        {self.model_calls}\n"
+                f"  Search calls:       {self.search_calls}\n"
+                f"  Critic approvals:   {self.critic_approvals}\n"
+                f"  Critic rejections:  {self.critic_rejections}\n"
+                f"  Memory hits:        {self.memory_hits}\n"
+                f"  Schema retries:     {self.schema_retries}\n"
+                f"  Fallback switches:  {self.fallback_events}\n"
+                f"  Same-model retries: {self.retry_events}\n"
+                f"{'-' * 40}\n"
+            )
 
 
-# Global metrics instance, importable by all agents
+# Default global metrics instance (for backward compatibility)
 metrics = RunMetrics()
 
 
@@ -144,6 +189,13 @@ class BaseAgent:
     system_prompt: str = "You are a helpful assistant."
     uses_tools: bool = False
     max_output_tokens: int | None = None  # Override in subclass to cap generation
+
+    def __init__(self, metrics_instance: RunMetrics | None = None):
+        self._metrics = metrics_instance
+
+    @property
+    def metrics(self) -> RunMetrics:
+        return self._metrics if self._metrics is not None else metrics
 
     def _get_config(self) -> types.GenerateContentConfig:
         """Build the GenerateContentConfig for this agent's role."""
@@ -172,29 +224,64 @@ class BaseAgent:
         for model_index, model in enumerate(models):
             for attempt in range(MODEL_ATTEMPTS):
                 try:
-                    metrics.model_calls += 1
+                    self.metrics.inc_model_calls()
                     response = _client.models.generate_content(
                         model=model, contents=contents, config=cfg
                     )
-                    metrics.record_model_use(self.role, model)
+                    self.metrics.record_model_use(self.role, model)
                     return response
                 except errors.ServerError as e:
                     last_error = e
                     if attempt + 1 < MODEL_ATTEMPTS:
                         wait = 2  # flat 2s wait for speed
                         print(f"    [{self.role}] {model} busy ({e.code}), retrying in {wait}s...")
-                        metrics.retry_events += 1
+                        self.metrics.inc_retry_events()
                         time.sleep(wait)
                     elif model_index + 1 < len(models):
                         print(f"    [{self.role}] {model} unavailable; trying {models[model_index + 1]}...")
-                        metrics.fallback_events += 1
+                        self.metrics.inc_fallback_events()
                 except errors.ClientError as e:
                     if e.code != 429:
                         raise
                     last_error = e
                     if model_index + 1 < len(models):
                         print(f"    [{self.role}] {model} quota exhausted; trying {models[model_index + 1]}...")
-                        metrics.fallback_events += 1
+                        self.metrics.inc_fallback_events()
+                        break
+
+        raise RuntimeError(
+            f"[{self.role}] All models failed: {', '.join(models)}"
+        ) from last_error
+
+    def _call_model_stream(self, contents: list[types.Content]):
+        """Call Gemini with role-based model routing and stream chunks."""
+        cfg = self._get_config()
+        primary_chain = ROLE_MODELS.get(self.role, ALL_MODELS)
+        models = list(primary_chain) + [m for m in ALL_MODELS if m not in primary_chain]
+        last_error = None
+
+        for model_index, model in enumerate(models):
+            for attempt in range(MODEL_ATTEMPTS):
+                try:
+                    self.metrics.inc_model_calls()
+                    stream = _client.models.generate_content_stream(
+                        model=model, contents=contents, config=cfg
+                    )
+                    self.metrics.record_model_use(self.role, model)
+                    return stream
+                except errors.ServerError as e:
+                    last_error = e
+                    if attempt + 1 < MODEL_ATTEMPTS:
+                        time.sleep(2)
+                        self.metrics.inc_retry_events()
+                    elif model_index + 1 < len(models):
+                        self.metrics.inc_fallback_events()
+                except errors.ClientError as e:
+                    if e.code != 429:
+                        raise
+                    last_error = e
+                    if model_index + 1 < len(models):
+                        self.metrics.inc_fallback_events()
                         break
 
         raise RuntimeError(
@@ -218,6 +305,11 @@ class BaseAgent:
         contents = [types.Content(role="user", parts=parts)]
         return self._call_model(contents)
 
+    def _ask_stream(self, prompt: str):
+        """One-shot streaming call (no tool loop). Yields chunk stream."""
+        contents = [types.Content(role="user", parts=[types.Part.from_text(text=prompt)])]
+        return self._call_model_stream(contents)
+
     def _ask_with_tools(self, prompt: str) -> str:
         """Multi-step tool-calling loop. Returns final text response."""
         from src.config import MAX_RESEARCH_STEPS
@@ -236,7 +328,7 @@ class BaseAgent:
                 # GenAI sometimes returns None for args instead of an empty dict
                 args = fc.args or {}
                 print(f"    [{self.role}] [search] searching: {dict(args)}")
-                metrics.search_calls += 1
+                self.metrics.inc_search_calls()
                 try:
                     output = TOOL_FUNCTIONS[fc.name](**args)
                 except Exception as e:
@@ -280,7 +372,7 @@ class BaseAgent:
                 response = self._ask(prompt, image_data=image_data)
             else:
                 # Error-correction retry: tell the model what went wrong
-                metrics.schema_retries += 1
+                self.metrics.inc_schema_retries()
                 correction_prompt = (
                     f"{prompt}\n\n"
                     f"Your previous response was invalid. The validation error was:\n"
