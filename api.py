@@ -69,6 +69,55 @@ def parse_status_message(msg: str) -> dict:
         "is_approval": is_approval,
     }
 
+import time
+from collections import defaultdict
+import jwt
+
+# Optional Supabase JWT secret for cryptographic verification (defaults to claims extraction if unset)
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
+
+class SimpleRateLimiter:
+    """Sliding-window in-memory rate limiter per user/client IP."""
+    def __init__(self):
+        self.requests = defaultdict(list)
+        self._lock = asyncio.Lock()
+
+    async def check(self, key: str, max_requests: int, window_seconds: int = 60):
+        now = time.time()
+        async with self._lock:
+            # Prune timestamps older than window
+            self.requests[key] = [t for t in self.requests[key] if now - t < window_seconds]
+            if len(self.requests[key]) >= max_requests:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Rate limit exceeded: maximum {max_requests} requests per {window_seconds}s."
+                )
+            self.requests[key].append(now)
+
+rate_limiter = SimpleRateLimiter()
+
+async def get_current_user_id(request: Request) -> str:
+    """Extract and validate user ID from Bearer token or query param, or fallback to client IP identifier."""
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    elif request.query_params.get("token"):
+        token = request.query_params.get("token").strip()
+
+    if token:
+        try:
+            if SUPABASE_JWT_SECRET:
+                payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+                return payload.get("sub", "authenticated_user")
+            else:
+                payload = jwt.decode(token, options={"verify_signature": False})
+                return payload.get("sub", "authenticated_user")
+        except Exception as e:
+            print(f"[Auth] JWT token decoding warning: {e}")
+    client_ip = request.client.host if request.client else "unknown"
+    return f"anon_{client_ip}"
+
 # Store supervisors in memory temporarily for the 2-step process
 active_sessions = {}
 
@@ -86,16 +135,21 @@ async def health_check():
     return {"status": "ok", "app": "Quorum API", "version": "1.0.0"}
 
 @app.post("/api/plan")
-async def generate_plan(request: PlanRequest):
+async def generate_plan(request: Request, body: PlanRequest):
     """
     Step 1: Generates the initial plan using the Planner Agent.
+    Guarded by user-scoped rate limiting.
     """
+    user_id = await get_current_user_id(request)
+    await rate_limiter.check(f"plan_{user_id}", max_requests=10, window_seconds=60)
     try:
-        supervisor = Supervisor()
+        supervisor = Supervisor(user_id=user_id)
         
         # We run this in a thread since it's currently sync
-        plan_list = await asyncio.to_thread(supervisor.plan_research, request.topic, getattr(request, 'base64_image', None))
+        plan_list = await asyncio.to_thread(supervisor.plan_research, body.topic, getattr(body, 'base64_image', None))
         return {"subquestions": plan_list}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -103,8 +157,11 @@ async def generate_plan(request: PlanRequest):
 async def execute_research(request: Request):
     """
     Step 2: Executes the research using the pre-planned questions.
-    Returns a Server-Sent Events (SSE) stream of agent progress and final report.
+    Returns a Server-Sent Events (SSE) stream of agent progress, live tokens, and final report.
     """
+    user_id = await get_current_user_id(request)
+    await rate_limiter.check(f"execute_{user_id}", max_requests=5, window_seconds=60)
+
     body = await request.json()
     topic = body.get("topic")
     custom_subs = body.get("custom_subquestions", [])
@@ -128,7 +185,11 @@ async def execute_research(request: Request):
             pass
 
     async def event_generator():
-        supervisor = Supervisor(on_status=on_status_callback, on_report_chunk=on_chunk_callback)
+        supervisor = Supervisor(
+            on_status=on_status_callback,
+            on_report_chunk=on_chunk_callback,
+            user_id=user_id
+        )
 
         def run_sync():
             try:
@@ -182,6 +243,9 @@ async def stream_research_get(topic: str, request: Request):
     if not topic:
         raise HTTPException(status_code=400, detail="Missing topic query parameter")
 
+    user_id = await get_current_user_id(request)
+    await rate_limiter.check(f"stream_{user_id}", max_requests=5, window_seconds=60)
+
     queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
@@ -198,7 +262,11 @@ async def stream_research_get(topic: str, request: Request):
             pass
 
     async def event_generator():
-        supervisor = Supervisor(on_status=on_status_callback, on_report_chunk=on_chunk_callback)
+        supervisor = Supervisor(
+            on_status=on_status_callback,
+            on_report_chunk=on_chunk_callback,
+            user_id=user_id
+        )
 
         def run_sync():
             try:
@@ -243,10 +311,13 @@ async def stream_research_get(topic: str, request: Request):
     return EventSourceResponse(event_generator())
 
 @app.get("/api/history")
-async def get_history():
-    """Fetches past research from SQLite."""
+async def get_history(request: Request):
+    """Fetches past research from SQLite with multi-tenant user isolation."""
+    user_id = await get_current_user_id(request)
     try:
-        records = get_recent_reports()
+        # If user is authenticated, isolate history to their user_id
+        filter_user = user_id if not user_id.startswith("anon_") else None
+        records = get_recent_reports(user_id=filter_user)
         return {"history": records}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -256,14 +327,17 @@ class PDFRequest(BaseModel):
     markdown_report: str
 
 @app.post("/api/export_pdf")
-async def export_pdf(request: PDFRequest):
+async def export_pdf(request: Request, body: PDFRequest):
     """Converts a markdown report string into a PDF and returns it."""
+    user_id = await get_current_user_id(request)
+    await rate_limiter.check(f"pdf_{user_id}", max_requests=10, window_seconds=60)
+
     import io
     import markdown as md
     from xhtml2pdf import pisa
     from fastapi.responses import Response
 
-    html_content = md.markdown(request.markdown_report, extensions=['tables'])
+    html_content = md.markdown(body.markdown_report, extensions=['tables'])
     styled_html = f"""
     <html>
         <head>
@@ -279,7 +353,7 @@ async def export_pdf(request: PDFRequest):
         </head>
         <body>
             <h1>Quorum AI Research Report</h1>
-            <p><b>Topic</b>: {request.topic}</p>
+            <p><b>Topic</b>: {body.topic}</p>
             <hr>
             {html_content}
         </body>
