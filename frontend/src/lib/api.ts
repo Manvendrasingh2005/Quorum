@@ -3,7 +3,20 @@
  * Connects the frontend to the live Python multi-agent execution pipeline.
  */
 
+import { supabase } from './supabase';
+
 export const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) {
+      headers['Authorization'] = `Bearer ${data.session.access_token}`;
+    }
+  } catch {}
+  return headers;
+}
 
 export interface AgentLogMessage {
   agent: 'Planner' | 'Researcher' | 'Critic' | 'Writer' | 'Supervisor' | 'System';
@@ -63,9 +76,10 @@ export async function generateResearchPlan(
   topic: string,
   base64Image?: string | null
 ): Promise<string[]> {
+  const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/plan`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({
       topic,
       base64_image: base64Image || null,
@@ -83,60 +97,79 @@ export async function generateResearchPlan(
 
 /**
  * Step 2: Stream multi-agent execution live via SSE.
- * Uses native browser EventSource for robust, resilient streaming.
+ * Uses native browser EventSource for robust, resilient streaming with optional auth token.
  */
 export function streamResearchExecution(
   topic: string,
   callbacks: StreamCallbacks
 ): () => void {
-  const url = `${API_BASE}/api/stream?topic=${encodeURIComponent(topic)}`;
-  const eventSource = new EventSource(url);
+  let eventSource: EventSource | null = null;
+  let isClosed = false;
 
-  eventSource.addEventListener('report_chunk', (event: MessageEvent) => {
+  (async () => {
     try {
-      const parsed = JSON.parse(event.data);
-      if (parsed.chunk !== undefined && callbacks.onChunk) {
-        callbacks.onChunk(parsed.chunk);
-      }
-    } catch (err) {
-      console.warn('Failed to parse SSE report_chunk:', err);
-    }
-  });
+      let token = '';
+      try {
+        const { data } = await supabase.auth.getSession();
+        token = data?.session?.access_token || '';
+      } catch {}
 
-  eventSource.addEventListener('agent_log', (event: MessageEvent) => {
-    try {
-      const parsed = JSON.parse(event.data);
-      if (parsed.type === 'done') {
-        callbacks.onDone({
-          report: parsed.report,
-          metrics: parsed.metrics || {},
-          findings: parsed.findings || [],
-        });
-        eventSource.close();
-      } else {
-        callbacks.onLog(parsed);
-      }
-    } catch (err) {
-      console.warn('Failed to parse SSE agent_log:', err);
-    }
-  });
+      if (isClosed) return;
 
-  eventSource.addEventListener('error', (event: any) => {
-    try {
-      if (event.data) {
-        const parsed = JSON.parse(event.data);
-        callbacks.onError(parsed.error || 'Swarm execution error');
-      } else {
-        callbacks.onError('Connection to Quorum multi-agent server interrupted.');
-      }
-    } catch {
-      callbacks.onError('Connection interrupted');
+      const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+      const url = `${API_BASE}/api/stream?topic=${encodeURIComponent(topic)}${tokenParam}`;
+      eventSource = new EventSource(url);
+
+      eventSource.addEventListener('report_chunk', (event: MessageEvent) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          if (parsed.chunk !== undefined && callbacks.onChunk) {
+            callbacks.onChunk(parsed.chunk);
+          }
+        } catch (err) {
+          console.warn('Failed to parse SSE report_chunk:', err);
+        }
+      });
+
+      eventSource.addEventListener('agent_log', (event: MessageEvent) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          if (parsed.type === 'done') {
+            callbacks.onDone({
+              report: parsed.report,
+              metrics: parsed.metrics || {},
+              findings: parsed.findings || [],
+            });
+            eventSource?.close();
+          } else {
+            callbacks.onLog(parsed);
+          }
+        } catch (err) {
+          console.warn('Failed to parse SSE agent_log:', err);
+        }
+      });
+
+      eventSource.addEventListener('error', (event: any) => {
+        try {
+          if (event.data) {
+            const parsed = JSON.parse(event.data);
+            callbacks.onError(parsed.error || 'Swarm execution error');
+          } else {
+            callbacks.onError('Connection to Quorum multi-agent server interrupted.');
+          }
+        } catch {
+          callbacks.onError('Connection interrupted');
+        }
+        eventSource?.close();
+      });
+    } catch (err: any) {
+      callbacks.onError(err.message || 'Failed to initialize SSE stream');
     }
-    eventSource.close();
-  });
+  })();
 
   return () => {
-    eventSource.close();
+    isClosed = true;
+    eventSource?.close();
   };
 }
 
@@ -144,9 +177,10 @@ export function streamResearchExecution(
  * Export research report as PDF via backend xhtml2pdf service.
  */
 export async function exportReportPdf(topic: string, markdownReport: string): Promise<Blob> {
+  const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/export_pdf`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({
       topic,
       markdown_report: markdownReport,
@@ -173,9 +207,10 @@ export function streamResearchWithPlan(
 
   (async () => {
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`${API_BASE}/api/execute`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ topic, custom_subquestions: customSubquestions }),
         signal: controller.signal,
       });
@@ -271,3 +306,20 @@ export function streamResearchWithPlan(
   return () => controller.abort();
 }
 
+/**
+ * Fetch authenticated user's past research history from backend SQLite store.
+ */
+export async function fetchBackendHistory(): Promise<any[]> {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_BASE}/api/history`, {
+      method: 'GET',
+      headers,
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.history || [];
+  } catch {
+    return [];
+  }
+}
