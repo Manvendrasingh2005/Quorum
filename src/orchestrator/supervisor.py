@@ -32,14 +32,17 @@ class Supervisor:
         on_status: Callable[[str], None] | None = None,
         on_report_chunk: Callable[[str], None] | None = None,
         metrics_instance: RunMetrics | None = None,
+        user_id: str = "anonymous",
     ):
         """
         Args:
             on_status: Optional callback for status log updates.
             on_report_chunk: Optional callback for live writer streaming tokens.
             metrics_instance: Optional session-isolated metrics container.
+            user_id: Authenticated user identifier for multi-tenant data scoping.
         """
         self.metrics = metrics_instance or RunMetrics()
+        self.user_id = user_id or "anonymous"
         self.planner = PlannerAgent(metrics_instance=self.metrics)
         self.researcher = ResearcherAgent(metrics_instance=self.metrics)
         self.critic = CriticAgent(metrics_instance=self.metrics)
@@ -168,7 +171,7 @@ class Supervisor:
         )
         
         # PERSIST SESSION
-        save_report(topic, report, final_report.model_dump())
+        save_report(topic, report, final_report.model_dump(), user_id=self.user_id)
 
         return final_report
 
@@ -238,7 +241,7 @@ class Supervisor:
         )
         
         # PERSIST SESSION
-        save_report(topic, report, final_report.model_dump())
+        save_report(topic, report, final_report.model_dump(), user_id=self.user_id)
 
         return final_report
 
