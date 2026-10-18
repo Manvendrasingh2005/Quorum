@@ -125,14 +125,24 @@ active_sessions = {}
 class PlanRequest(BaseModel):
     topic: str
     base64_image: str | None = None
+    depth: str = "standard"
 
 class ExecuteRequest(BaseModel):
     topic: str
     custom_subquestions: list[str]
+    depth: str = "standard"
 
 class CreateJobRequest(BaseModel):
     topic: str
     custom_subquestions: list[str] | None = None
+    depth: str = "standard"
+
+class VerifyCitationsRequest(BaseModel):
+    urls: list[str]
+
+class DocxRequest(BaseModel):
+    topic: str
+    markdown_report: str
 
 @app.get("/api/health")
 async def health_check():
@@ -142,7 +152,7 @@ async def health_check():
 @app.post("/api/plan")
 async def generate_plan(request: Request, body: PlanRequest):
     """
-    Step 1: Generates the initial plan using the Planner Agent.
+    Step 1: Generates the initial plan using the Planner Agent based on depth.
     Guarded by user-scoped rate limiting.
     """
     user_id = await get_current_user_id(request)
@@ -151,7 +161,12 @@ async def generate_plan(request: Request, body: PlanRequest):
         supervisor = Supervisor(user_id=user_id)
         
         # We run this in a thread since it's currently sync
-        plan_list = await asyncio.to_thread(supervisor.plan_research, body.topic, getattr(body, 'base64_image', None))
+        plan_list = await asyncio.to_thread(
+            supervisor.plan_research,
+            body.topic,
+            getattr(body, 'base64_image', None),
+            depth=body.depth,
+        )
         return {"subquestions": plan_list}
     except HTTPException:
         raise
@@ -174,10 +189,11 @@ async def create_research_job(request: Request, body: CreateJobRequest):
         topic=body.topic,
         custom_subquestions=body.custom_subquestions,
         user_id=user_id,
+        depth=body.depth,
     )
     loop = asyncio.get_running_loop()
     job_manager.start_job(job.job_id, loop)
-    return {"job_id": job.job_id, "status": job.status, "topic": job.topic}
+    return {"job_id": job.job_id, "status": job.status, "topic": job.topic, "depth": job.depth}
 
 @app.get("/api/jobs/{job_id}/stream")
 async def stream_job_events(job_id: str, request: Request, last_event_id: int | None = None):
@@ -245,11 +261,12 @@ async def execute_research(request: Request):
     elif request.query_params.get("last_event_id") and request.query_params.get("last_event_id").isdigit():
         resolved_last_id = int(request.query_params.get("last_event_id"))
 
+    depth = body.get("depth", "standard")
     job_id = body.get("job_id") or request.query_params.get("job_id")
     job = job_manager.get_job(job_id) if job_id else None
 
     if not job:
-        job = await job_manager.create_job(topic=topic, custom_subquestions=custom_subs, user_id=user_id)
+        job = await job_manager.create_job(topic=topic, custom_subquestions=custom_subs, user_id=user_id, depth=depth)
         loop = asyncio.get_running_loop()
         job_manager.start_job(job.job_id, loop)
 
@@ -264,7 +281,7 @@ async def execute_research(request: Request):
     return EventSourceResponse(event_generator())
 
 @app.get("/api/stream")
-async def stream_research_get(topic: str, request: Request, job_id: str | None = None):
+async def stream_research_get(topic: str, request: Request, job_id: str | None = None, depth: str = "standard"):
     """
     GET SSE stream: Plans and executes end-to-end multi-agent research.
     Enables native EventSource in browsers with buffered event replayability.
@@ -284,7 +301,7 @@ async def stream_research_get(topic: str, request: Request, job_id: str | None =
 
     job = job_manager.get_job(job_id) if job_id else None
     if not job:
-        job = await job_manager.create_job(topic=topic, custom_subquestions=None, user_id=user_id)
+        job = await job_manager.create_job(topic=topic, custom_subquestions=None, user_id=user_id, depth=depth)
         loop = asyncio.get_running_loop()
         job_manager.start_job(job.job_id, loop)
 
@@ -354,6 +371,121 @@ async def export_pdf(request: Request, body: PDFRequest):
         content=pdf_buf.getvalue(), 
         media_type="application/pdf", 
         headers={"Content-Disposition": f"attachment; filename=Quorum_Report.pdf"}
+    )
+
+@app.post("/api/verify_citations")
+async def verify_citations(request: Request, body: VerifyCitationsRequest):
+    """Concurrently audits cited URLs via HTTP HEAD/GET to verify availability and extract domain metadata."""
+    import requests
+    from urllib.parse import urlparse
+
+    def check_single_url(url: str):
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.replace("www.", "")
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            resp = requests.head(url, timeout=3, allow_redirects=True, headers=headers)
+            is_live = resp.status_code < 400
+            return {
+                "url": url,
+                "domain": domain,
+                "status": "verified" if is_live else "unreachable",
+                "status_code": resp.status_code,
+            }
+        except Exception:
+            try:
+                parsed = urlparse(url)
+                domain = parsed.netloc.replace("www.", "")
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                resp = requests.get(url, timeout=3, stream=True, headers=headers)
+                is_live = resp.status_code < 400
+                return {
+                    "url": url,
+                    "domain": domain,
+                    "status": "verified" if is_live else "unreachable",
+                    "status_code": resp.status_code,
+                }
+            except Exception:
+                domain = urlparse(url).netloc.replace("www.", "") if urlparse(url).netloc else "source"
+                return {
+                    "url": url,
+                    "domain": domain,
+                    "status": "unreachable",
+                    "status_code": 0,
+                }
+
+    unique_urls = list(dict.fromkeys(body.urls))[:20]
+    results = await asyncio.gather(*(asyncio.to_thread(check_single_url, u) for u in unique_urls))
+    return {"citations": results}
+
+@app.post("/api/export_docx")
+async def export_docx(request: Request, body: DocxRequest):
+    """Converts a markdown research report into a professionally formatted Microsoft Word (.docx) document."""
+    user_id = await get_current_user_id(request)
+    await rate_limiter.check(f"docx_{user_id}", max_requests=10, window_seconds=60)
+
+    import io
+    import docx
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from fastapi.responses import Response
+
+    doc = docx.Document()
+
+    # Document Title
+    title_heading = doc.add_heading("Quorum AI Research Dossier", level=0)
+    title_heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    # Topic Subtitle
+    sub_para = doc.add_paragraph()
+    sub_run = sub_para.add_run(f"Topic: {body.topic}")
+    sub_run.bold = True
+    sub_run.font.size = Pt(13)
+    sub_run.font.color.rgb = RGBColor(31, 111, 235)
+
+    date_str = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    meta_para = doc.add_paragraph(f"Synthesized by Quorum Autonomous Multi-Agent Swarm • Date: {date_str}")
+    meta_para.runs[0].font.size = Pt(9)
+    meta_para.runs[0].font.color.rgb = RGBColor(120, 120, 120)
+
+    doc.add_paragraph("-" * 60)
+
+    # Convert Markdown to structured DOCX sections
+    for raw_line in body.markdown_report.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("# "):
+            h = doc.add_heading(line[2:], level=1)
+            h.paragraph_format.space_before = Pt(14)
+            h.paragraph_format.space_after = Pt(4)
+        elif line.startswith("## "):
+            h = doc.add_heading(line[3:], level=2)
+            h.paragraph_format.space_before = Pt(11)
+            h.paragraph_format.space_after = Pt(3)
+        elif line.startswith("### "):
+            h = doc.add_heading(line[4:], level=3)
+            h.paragraph_format.space_before = Pt(8)
+            h.paragraph_format.space_after = Pt(2)
+        elif line.startswith(("- ", "* ")):
+            doc.add_paragraph(line[2:], style='List Bullet')
+        elif line[:3].replace('.', '').isdigit() and line[2:4] in ('. ', ') '):
+            doc.add_paragraph(line[3:], style='List Number')
+        else:
+            p = doc.add_paragraph(line)
+            p.paragraph_format.line_spacing = 1.15
+            p.paragraph_format.space_after = Pt(5)
+
+    docx_buf = io.BytesIO()
+    doc.save(docx_buf)
+
+    clean_topic = "".join(c for c in body.topic[:35] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    filename = f"Quorum_{clean_topic or 'Report'}.docx"
+
+    return Response(
+        content=docx_buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 
 if __name__ == "__main__":
