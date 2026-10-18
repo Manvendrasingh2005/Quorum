@@ -96,80 +96,143 @@ export async function generateResearchPlan(
 }
 
 /**
- * Step 2: Stream multi-agent execution live via SSE.
- * Uses native browser EventSource for robust, resilient streaming with optional auth token.
+ * Create an asynchronous background research job.
+ */
+export async function createResearchJob(
+  topic: string,
+  customSubquestions?: string[]
+): Promise<{ job_id: string; status: string; topic: string }> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/jobs`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      topic,
+      custom_subquestions: customSubquestions || null,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Failed to create research job: ${errText}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Poll or inspect the status and results of a research job.
+ */
+export async function getJobStatus(jobId: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'GET',
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch status for job ${jobId}`);
+  }
+  return await res.json();
+}
+
+/**
+ * Step 2: Stream multi-agent execution live via SSE with automatic reconnection and replay.
  */
 export function streamResearchExecution(
   topic: string,
   callbacks: StreamCallbacks
 ): () => void {
-  let eventSource: EventSource | null = null;
   let isClosed = false;
+  let activeEventSource: EventSource | null = null;
+  let lastEventId = 0;
+  let retryCount = 0;
+  const maxRetries = 5;
 
   (async () => {
     try {
-      let token = '';
-      try {
-        const { data } = await supabase.auth.getSession();
-        token = data?.session?.access_token || '';
-      } catch {}
-
+      // Step 1: Create asynchronous job to obtain stable job_id
+      const jobData = await createResearchJob(topic);
       if (isClosed) return;
+      const jobId = jobData.job_id;
 
-      const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
-      const url = `${API_BASE}/api/stream?topic=${encodeURIComponent(topic)}${tokenParam}`;
-      eventSource = new EventSource(url);
+      // Step 2: Connect with automatic reconnect and event replayability
+      const connectStream = async () => {
+        if (isClosed) return;
 
-      eventSource.addEventListener('report_chunk', (event: MessageEvent) => {
+        let token = '';
         try {
-          const parsed = JSON.parse(event.data);
-          if (parsed.chunk !== undefined && callbacks.onChunk) {
-            callbacks.onChunk(parsed.chunk);
+          const { data } = await supabase.auth.getSession();
+          token = data?.session?.access_token || '';
+        } catch {}
+
+        const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+        const url = `${API_BASE}/api/jobs/${encodeURIComponent(jobId)}/stream?last_event_id=${lastEventId}${tokenParam}`;
+        activeEventSource = new EventSource(url);
+
+        activeEventSource.addEventListener('report_chunk', (event: MessageEvent) => {
+          if (event.lastEventId) {
+            const parsedId = parseInt(event.lastEventId, 10);
+            if (!isNaN(parsedId)) lastEventId = parsedId;
           }
-        } catch (err) {
-          console.warn('Failed to parse SSE report_chunk:', err);
-        }
-      });
-
-      eventSource.addEventListener('agent_log', (event: MessageEvent) => {
-        try {
-          const parsed = JSON.parse(event.data);
-          if (parsed.type === 'done') {
-            callbacks.onDone({
-              report: parsed.report,
-              metrics: parsed.metrics || {},
-              findings: parsed.findings || [],
-            });
-            eventSource?.close();
-          } else {
-            callbacks.onLog(parsed);
-          }
-        } catch (err) {
-          console.warn('Failed to parse SSE agent_log:', err);
-        }
-      });
-
-      eventSource.addEventListener('error', (event: any) => {
-        try {
-          if (event.data) {
+          try {
             const parsed = JSON.parse(event.data);
-            callbacks.onError(parsed.error || 'Swarm execution error');
-          } else {
-            callbacks.onError('Connection to Quorum multi-agent server interrupted.');
+            if (parsed.chunk !== undefined && callbacks.onChunk) {
+              callbacks.onChunk(parsed.chunk);
+            }
+          } catch (err) {
+            console.warn('Failed to parse SSE report_chunk:', err);
           }
-        } catch {
-          callbacks.onError('Connection interrupted');
-        }
-        eventSource?.close();
-      });
+        });
+
+        activeEventSource.addEventListener('agent_log', (event: MessageEvent) => {
+          if (event.lastEventId) {
+            const parsedId = parseInt(event.lastEventId, 10);
+            if (!isNaN(parsedId)) lastEventId = parsedId;
+          }
+          try {
+            const parsed = JSON.parse(event.data);
+            if (parsed.type === 'done') {
+              callbacks.onDone({
+                report: parsed.report,
+                metrics: parsed.metrics || {},
+                findings: parsed.findings || [],
+              });
+              activeEventSource?.close();
+            } else {
+              callbacks.onLog(parsed);
+            }
+          } catch (err) {
+            console.warn('Failed to parse SSE agent_log:', err);
+          }
+        });
+
+        activeEventSource.addEventListener('error', () => {
+          activeEventSource?.close();
+          if (isClosed) return;
+
+          if (retryCount < maxRetries) {
+            retryCount++;
+            const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
+            callbacks.onLog({
+              agent: 'System',
+              status: `Network connection interrupted. Resuming swarm stream from event #${lastEventId} (attempt ${retryCount}/${maxRetries})...`,
+            });
+            setTimeout(connectStream, delay);
+          } else {
+            callbacks.onError('Connection to Quorum multi-agent server lost after multiple retries.');
+          }
+        });
+      };
+
+      await connectStream();
     } catch (err: any) {
-      callbacks.onError(err.message || 'Failed to initialize SSE stream');
+      if (!isClosed) {
+        callbacks.onError(err.message || 'Failed to initialize research execution');
+      }
     }
   })();
 
   return () => {
     isClosed = true;
-    eventSource?.close();
+    activeEventSource?.close();
   };
 }
 
@@ -195,115 +258,108 @@ export async function exportReportPdf(topic: string, markdownReport: string): Pr
 }
 
 /**
- * Step 2 (HITL): Stream multi-agent execution with user-edited sub-questions via POST SSE.
- * Uses fetch + ReadableStream since EventSource only supports GET.
+ * Step 2 (HITL): Stream multi-agent execution with user-edited sub-questions.
+ * Uses asynchronous job dispatch + reconnectable SSE stream with Last-Event-ID replay.
  */
 export function streamResearchWithPlan(
   topic: string,
   customSubquestions: string[],
   callbacks: StreamCallbacks
 ): () => void {
-  const controller = new AbortController();
+  let isClosed = false;
+  let activeEventSource: EventSource | null = null;
+  let lastEventId = 0;
+  let retryCount = 0;
+  const maxRetries = 5;
 
   (async () => {
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE}/api/execute`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ topic, custom_subquestions: customSubquestions }),
-        signal: controller.signal,
-      });
+      // Step 1: Create background research job
+      const jobData = await createResearchJob(topic, customSubquestions);
+      if (isClosed) return;
+      const jobId = jobData.job_id;
 
-      if (!res.ok || !res.body) {
-        callbacks.onError(`Backend returned ${res.status}`);
-        return;
-      }
+      // Step 2: Connect to reconnectable SSE stream with exponential backoff
+      const connectStream = async () => {
+        if (isClosed) return;
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+        let token = '';
+        try {
+          const { data } = await supabase.auth.getSession();
+          token = data?.session?.access_token || '';
+        } catch {}
 
-      let hasCompleted = false;
+        const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+        const url = `${API_BASE}/api/jobs/${encodeURIComponent(jobId)}/stream?last_event_id=${lastEventId}${tokenParam}`;
+        activeEventSource = new EventSource(url);
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (trimmedLine.startsWith('data:')) {
-            const jsonStr = trimmedLine.slice(5).trim();
-            if (!jsonStr) continue;
-            try {
-              const parsed = JSON.parse(jsonStr);
-              if (parsed.type === 'done') {
-                hasCompleted = true;
-                callbacks.onDone({
-                  report: parsed.report,
-                  metrics: parsed.metrics || {},
-                  findings: parsed.findings || [],
-                });
-                return;
-              } else if (parsed.chunk !== undefined) {
-                callbacks.onChunk?.(parsed.chunk);
-              } else if (parsed.error) {
-                hasCompleted = true;
-                callbacks.onError(parsed.error);
-                return;
-              } else {
-                callbacks.onLog(parsed);
-              }
-            } catch {}
+        activeEventSource.addEventListener('report_chunk', (event: MessageEvent) => {
+          if (event.lastEventId) {
+            const parsedId = parseInt(event.lastEventId, 10);
+            if (!isNaN(parsedId)) lastEventId = parsedId;
           }
-        }
-      }
-
-      // Check remaining buffer when reader completes
-      if (buffer.trim()) {
-        const trimmedLine = buffer.trim();
-        if (trimmedLine.startsWith('data:')) {
-          const jsonStr = trimmedLine.slice(5).trim();
-          if (jsonStr) {
-            try {
-              const parsed = JSON.parse(jsonStr);
-              if (parsed.type === 'done') {
-                hasCompleted = true;
-                callbacks.onDone({
-                  report: parsed.report,
-                  metrics: parsed.metrics || {},
-                  findings: parsed.findings || [],
-                });
-                return;
-              } else if (parsed.chunk !== undefined) {
-                callbacks.onChunk?.(parsed.chunk);
-              } else if (parsed.error) {
-                hasCompleted = true;
-                callbacks.onError(parsed.error);
-                return;
-              } else {
-                callbacks.onLog(parsed);
-              }
-            } catch {}
+          try {
+            const parsed = JSON.parse(event.data);
+            if (parsed.chunk !== undefined && callbacks.onChunk) {
+              callbacks.onChunk(parsed.chunk);
+            }
+          } catch (err) {
+            console.warn('Failed to parse SSE report_chunk:', err);
           }
-        }
-      }
+        });
 
-      if (!hasCompleted && !controller.signal.aborted) {
-        callbacks.onError('Research stream completed without final report');
-      }
+        activeEventSource.addEventListener('agent_log', (event: MessageEvent) => {
+          if (event.lastEventId) {
+            const parsedId = parseInt(event.lastEventId, 10);
+            if (!isNaN(parsedId)) lastEventId = parsedId;
+          }
+          try {
+            const parsed = JSON.parse(event.data);
+            if (parsed.type === 'done') {
+              callbacks.onDone({
+                report: parsed.report,
+                metrics: parsed.metrics || {},
+                findings: parsed.findings || [],
+              });
+              activeEventSource?.close();
+            } else {
+              callbacks.onLog(parsed);
+            }
+          } catch (err) {
+            console.warn('Failed to parse SSE agent_log:', err);
+          }
+        });
+
+        activeEventSource.addEventListener('error', () => {
+          activeEventSource?.close();
+          if (isClosed) return;
+
+          if (retryCount < maxRetries) {
+            retryCount++;
+            const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
+            callbacks.onLog({
+              agent: 'System',
+              status: `Network connection interrupted. Resuming swarm stream from event #${lastEventId} (attempt ${retryCount}/${maxRetries})...`,
+            });
+            setTimeout(connectStream, delay);
+          } else {
+            callbacks.onError('Connection to Quorum multi-agent server lost after multiple retries.');
+          }
+        });
+      };
+
+      await connectStream();
     } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        callbacks.onError(err.message || 'Stream connection failed');
+      if (!isClosed) {
+        callbacks.onError(err.message || 'Failed to initialize research execution');
       }
     }
   })();
 
-  return () => controller.abort();
+  return () => {
+    isClosed = true;
+    activeEventSource?.close();
+  };
 }
 
 /**
