@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.orchestrator.supervisor import Supervisor
+from src.orchestrator.job_manager import job_manager, parse_agent_log
 from src.memory.db import get_recent_reports
 
 app = FastAPI(title="Quorum API")
@@ -129,6 +130,10 @@ class ExecuteRequest(BaseModel):
     topic: str
     custom_subquestions: list[str]
 
+class CreateJobRequest(BaseModel):
+    topic: str
+    custom_subquestions: list[str] | None = None
+
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint to verify backend connectivity."""
@@ -153,11 +158,75 @@ async def generate_plan(request: Request, body: PlanRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/jobs", status_code=202)
+async def create_research_job(request: Request, body: CreateJobRequest):
+    """
+    Asynchronously registers and starts a background research execution job.
+    Returns 202 Accepted with job_id for reconnectable SSE streaming.
+    """
+    user_id = await get_current_user_id(request)
+    await rate_limiter.check(f"execute_{user_id}", max_requests=5, window_seconds=60)
+
+    if not body.topic:
+        raise HTTPException(status_code=400, detail="Missing research topic")
+
+    job = await job_manager.create_job(
+        topic=body.topic,
+        custom_subquestions=body.custom_subquestions,
+        user_id=user_id,
+    )
+    loop = asyncio.get_running_loop()
+    job_manager.start_job(job.job_id, loop)
+    return {"job_id": job.job_id, "status": job.status, "topic": job.topic}
+
+@app.get("/api/jobs/{job_id}/stream")
+async def stream_job_events(job_id: str, request: Request, last_event_id: int | None = None):
+    """
+    Streams Server-Sent Events (SSE) for a research job.
+    Supports seamless reconnection and replay via Last-Event-ID header or query param.
+    """
+    header_last_id = request.headers.get("Last-Event-ID")
+    resolved_last_id = 0
+    if header_last_id and header_last_id.isdigit():
+        resolved_last_id = int(header_last_id)
+    elif last_event_id is not None:
+        resolved_last_id = last_event_id
+    elif request.query_params.get("last_event_id") and request.query_params.get("last_event_id").isdigit():
+        resolved_last_id = int(request.query_params.get("last_event_id"))
+
+    async def event_generator():
+        async for ev in job_manager.subscribe(job_id, last_event_id=resolved_last_id):
+            yield {
+                "id": ev.get("id"),
+                "event": ev.get("event"),
+                "data": ev.get("data")
+            }
+
+    return EventSourceResponse(event_generator())
+
+@app.get("/api/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    """Inspects research job status, metrics, findings, and completion report."""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "job_id": job.job_id,
+        "status": job.status,
+        "topic": job.topic,
+        "created_at": job.created_at,
+        "completed_at": job.completed_at,
+        "result": job.result,
+        "error": job.error,
+        "event_count": len(job.events),
+    }
+
 @app.post("/api/execute")
 async def execute_research(request: Request):
     """
     Step 2: Executes the research using the pre-planned questions.
     Returns a Server-Sent Events (SSE) stream of agent progress, live tokens, and final report.
+    Buffered and reconnectable via JobManager.
     """
     user_id = await get_current_user_id(request)
     await rate_limiter.check(f"execute_{user_id}", max_requests=5, window_seconds=60)
@@ -169,76 +238,36 @@ async def execute_research(request: Request):
     if not topic or not custom_subs:
         raise HTTPException(status_code=400, detail="Missing topic or subquestions")
 
-    queue = asyncio.Queue()
-    loop = asyncio.get_running_loop()
+    header_last_id = request.headers.get("Last-Event-ID")
+    resolved_last_id = 0
+    if header_last_id and header_last_id.isdigit():
+        resolved_last_id = int(header_last_id)
+    elif request.query_params.get("last_event_id") and request.query_params.get("last_event_id").isdigit():
+        resolved_last_id = int(request.query_params.get("last_event_id"))
 
-    def on_status_callback(msg: str):
-        try:
-            loop.call_soon_threadsafe(queue.put_nowait, msg)
-        except Exception:
-            pass
+    job_id = body.get("job_id") or request.query_params.get("job_id")
+    job = job_manager.get_job(job_id) if job_id else None
 
-    def on_chunk_callback(chunk: str):
-        try:
-            loop.call_soon_threadsafe(queue.put_nowait, {"type": "report_chunk", "chunk": chunk})
-        except Exception:
-            pass
+    if not job:
+        job = await job_manager.create_job(topic=topic, custom_subquestions=custom_subs, user_id=user_id)
+        loop = asyncio.get_running_loop()
+        job_manager.start_job(job.job_id, loop)
 
     async def event_generator():
-        supervisor = Supervisor(
-            on_status=on_status_callback,
-            on_report_chunk=on_chunk_callback,
-            user_id=user_id
-        )
+        async for ev in job_manager.subscribe(job.job_id, last_event_id=resolved_last_id):
+            yield {
+                "id": ev.get("id"),
+                "event": ev.get("event"),
+                "data": ev.get("data")
+            }
 
-        def run_sync():
-            try:
-                res = supervisor.execute_research_async(topic, custom_subs)
-                loop.call_soon_threadsafe(queue.put_nowait, {
-                    "type": "done", 
-                    "report": res.report,
-                    "metrics": res.metrics,
-                    "findings": [f.model_dump() for f in res.findings]
-                })
-            except Exception as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "error": str(e)})
-
-        # Start execution in a background thread
-        loop.run_in_executor(None, run_sync)
-
-        while True:
-            msg = await queue.get()
-            if isinstance(msg, dict):
-                if msg.get("type") == "report_chunk":
-                    yield {
-                        "event": "report_chunk",
-                        "data": json.dumps({"chunk": msg["chunk"]}),
-                    }
-                elif msg.get("type") == "done":
-                    yield {
-                        "event": "agent_log",
-                        "data": json.dumps({
-                            "type": "done",
-                            "report": msg["report"],
-                            "metrics": msg["metrics"],
-                            "findings": msg["findings"],
-                        }),
-                    }
-                    break
-                elif msg.get("type") == "error":
-                    yield {"event": "error", "data": json.dumps({"error": msg["error"]})}
-                    break
-            else:
-                parsed = parse_status_message(msg)
-                yield {"event": "agent_log", "data": json.dumps(parsed)}
-                
     return EventSourceResponse(event_generator())
 
 @app.get("/api/stream")
-async def stream_research_get(topic: str, request: Request):
+async def stream_research_get(topic: str, request: Request, job_id: str | None = None):
     """
     GET SSE stream: Plans and executes end-to-end multi-agent research.
-    Enables native EventSource in browsers without requiring POST fetch streaming.
+    Enables native EventSource in browsers with buffered event replayability.
     """
     if not topic:
         raise HTTPException(status_code=400, detail="Missing topic query parameter")
@@ -246,67 +275,26 @@ async def stream_research_get(topic: str, request: Request):
     user_id = await get_current_user_id(request)
     await rate_limiter.check(f"stream_{user_id}", max_requests=5, window_seconds=60)
 
-    queue = asyncio.Queue()
-    loop = asyncio.get_running_loop()
+    header_last_id = request.headers.get("Last-Event-ID")
+    resolved_last_id = 0
+    if header_last_id and header_last_id.isdigit():
+        resolved_last_id = int(header_last_id)
+    elif request.query_params.get("last_event_id") and request.query_params.get("last_event_id").isdigit():
+        resolved_last_id = int(request.query_params.get("last_event_id"))
 
-    def on_status_callback(msg: str):
-        try:
-            loop.call_soon_threadsafe(queue.put_nowait, msg)
-        except Exception:
-            pass
-
-    def on_chunk_callback(chunk: str):
-        try:
-            loop.call_soon_threadsafe(queue.put_nowait, {"type": "report_chunk", "chunk": chunk})
-        except Exception:
-            pass
+    job = job_manager.get_job(job_id) if job_id else None
+    if not job:
+        job = await job_manager.create_job(topic=topic, custom_subquestions=None, user_id=user_id)
+        loop = asyncio.get_running_loop()
+        job_manager.start_job(job.job_id, loop)
 
     async def event_generator():
-        supervisor = Supervisor(
-            on_status=on_status_callback,
-            on_report_chunk=on_chunk_callback,
-            user_id=user_id
-        )
-
-        def run_sync():
-            try:
-                res = supervisor.run_async(topic)
-                loop.call_soon_threadsafe(queue.put_nowait, {
-                    "type": "done",
-                    "report": res.report,
-                    "metrics": res.metrics,
-                    "findings": [f.model_dump() for f in res.findings],
-                })
-            except Exception as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "error": str(e)})
-
-        loop.run_in_executor(None, run_sync)
-
-        while True:
-            msg = await queue.get()
-            if isinstance(msg, dict):
-                if msg.get("type") == "report_chunk":
-                    yield {
-                        "event": "report_chunk",
-                        "data": json.dumps({"chunk": msg["chunk"]}),
-                    }
-                elif msg.get("type") == "done":
-                    yield {
-                        "event": "agent_log",
-                        "data": json.dumps({
-                            "type": "done",
-                            "report": msg["report"],
-                            "metrics": msg["metrics"],
-                            "findings": msg["findings"],
-                        }),
-                    }
-                    break
-                elif msg.get("type") == "error":
-                    yield {"event": "error", "data": json.dumps({"error": msg["error"]})}
-                    break
-            else:
-                parsed = parse_status_message(msg)
-                yield {"event": "agent_log", "data": json.dumps(parsed)}
+        async for ev in job_manager.subscribe(job.job_id, last_event_id=resolved_last_id):
+            yield {
+                "id": ev.get("id"),
+                "event": ev.get("event"),
+                "data": ev.get("data")
+            }
 
     return EventSourceResponse(event_generator())
 
