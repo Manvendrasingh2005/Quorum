@@ -74,7 +74,8 @@ export async function checkBackendHealth(): Promise<boolean> {
  */
 export async function generateResearchPlan(
   topic: string,
-  base64Image?: string | null
+  base64Image?: string | null,
+  depth: string = 'standard'
 ): Promise<string[]> {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/plan`, {
@@ -83,6 +84,7 @@ export async function generateResearchPlan(
     body: JSON.stringify({
       topic,
       base64_image: base64Image || null,
+      depth,
     }),
   });
 
@@ -100,8 +102,9 @@ export async function generateResearchPlan(
  */
 export async function createResearchJob(
   topic: string,
-  customSubquestions?: string[]
-): Promise<{ job_id: string; status: string; topic: string }> {
+  customSubquestions?: string[],
+  depth: string = 'standard'
+): Promise<{ job_id: string; status: string; topic: string; depth?: string }> {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/jobs`, {
     method: 'POST',
@@ -109,6 +112,7 @@ export async function createResearchJob(
     body: JSON.stringify({
       topic,
       custom_subquestions: customSubquestions || null,
+      depth,
     }),
   });
 
@@ -138,7 +142,8 @@ export async function getJobStatus(jobId: string): Promise<any> {
  */
 export function streamResearchExecution(
   topic: string,
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  depth: string = 'standard'
 ): () => void {
   let isClosed = false;
   let activeEventSource: EventSource | null = null;
@@ -149,7 +154,7 @@ export function streamResearchExecution(
   (async () => {
     try {
       // Step 1: Create asynchronous job to obtain stable job_id
-      const jobData = await createResearchJob(topic);
+      const jobData = await createResearchJob(topic, undefined, depth);
       if (isClosed) return;
       const jobId = jobData.job_id;
 
@@ -264,7 +269,8 @@ export async function exportReportPdf(topic: string, markdownReport: string): Pr
 export function streamResearchWithPlan(
   topic: string,
   customSubquestions: string[],
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  depth: string = 'standard'
 ): () => void {
   let isClosed = false;
   let activeEventSource: EventSource | null = null;
@@ -275,7 +281,7 @@ export function streamResearchWithPlan(
   (async () => {
     try {
       // Step 1: Create background research job
-      const jobData = await createResearchJob(topic, customSubquestions);
+      const jobData = await createResearchJob(topic, customSubquestions, depth);
       if (isClosed) return;
       const jobId = jobData.job_id;
 
@@ -375,6 +381,47 @@ export async function fetchBackendHistory(): Promise<any[]> {
     if (!res.ok) return [];
     const data = await res.json();
     return data.history || [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Export research report as Microsoft Word (.docx) document.
+ */
+export async function exportReportDocx(topic: string, markdownReport: string): Promise<Blob> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/export_docx`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      topic,
+      markdown_report: markdownReport,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error('Failed to generate Word DOCX report from backend');
+  }
+
+  return await res.blob();
+}
+
+/**
+ * Concurrently verify cited source URLs and retrieve domain reachability.
+ */
+export async function verifyCitations(urls: string[]): Promise<{ url: string; domain: string; status: 'verified' | 'unreachable'; status_code: number }[]> {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_BASE}/api/verify_citations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ urls }),
+    });
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.citations || [];
   } catch {
     return [];
   }
