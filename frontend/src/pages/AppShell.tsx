@@ -17,13 +17,16 @@ import {
   BarChart3,
   Layers,
   Search,
+  Zap,
+  Scale,
+  Microscope,
 } from 'lucide-react';
 import { Sidebar, NavItem } from '../components/layout/Sidebar';
 import { TopBar } from '../components/layout/TopBar';
 import { fetchUserResearchFromSupabase, SavedResearch } from '../lib/supabase';
 
 interface AppShellProps {
-  onStartResearch: (query: string, options?: { image?: string | null }) => void;
+  onStartResearch: (query: string, options?: { image?: string | null; depth?: string }) => void;
   onSignOut: () => void;
 }
 
@@ -40,6 +43,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const [speechFeedback, setSpeechFeedback] = useState<string | null>(null);
   const [supabaseHistory, setSupabaseHistory] = useState<SavedResearch[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [researchDepth, setResearchDepth] = useState<'flash' | 'standard' | 'deep'>('standard');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -162,6 +166,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
     onStartResearch(query, {
       image: attachedImage,
+      depth: researchDepth,
     });
   };
 
@@ -317,6 +322,49 @@ export const AppShell: React.FC<AppShellProps> = ({
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                         <span>4 Agents</span>
                       </span>
+
+                      {/* Research Depth Mode Selector */}
+                      <div className="flex items-center gap-1 p-0.5 rounded-xl bg-white/[0.03] border border-white/[0.08] text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setResearchDepth('flash')}
+                          className={`flex items-center gap-1 px-2 py-0.5 rounded-lg transition-all cursor-pointer text-[11px] font-medium ${
+                            researchDepth === 'flash'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                          title="Flash Brief: 1 subquestion, fast verification (~10-12s)"
+                        >
+                          <Zap className="w-3 h-3 text-amber-400" />
+                          <span>Flash</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setResearchDepth('standard')}
+                          className={`flex items-center gap-1 px-2 py-0.5 rounded-lg transition-all cursor-pointer text-[11px] font-medium ${
+                            researchDepth === 'standard'
+                              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shadow-sm'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                          title="Standard Dossier: 3 subquestions, comprehensive research (~20-25s)"
+                        >
+                          <Scale className="w-3 h-3 text-indigo-400" />
+                          <span>Standard</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setResearchDepth('deep')}
+                          className={`flex items-center gap-1 px-2 py-0.5 rounded-lg transition-all cursor-pointer text-[11px] font-medium ${
+                            researchDepth === 'deep'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                          title="Deep Investigation: 5 subquestions, exhaustive multi-source research (~60-90s)"
+                        >
+                          <Microscope className="w-3 h-3 text-emerald-400" />
+                          <span>Deep</span>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Submit Button */}
