@@ -60,6 +60,7 @@ class ResearchJob:
     topic: str
     user_id: str = "anonymous"
     custom_subquestions: list[str] | None = None
+    depth: str = "standard"
     status: str = "queued"  # queued, running, completed, failed, cancelled
     created_at: float = field(default_factory=time.time)
     completed_at: float | None = None
@@ -85,6 +86,7 @@ class JobManager:
         topic: str,
         custom_subquestions: list[str] | None = None,
         user_id: str = "anonymous",
+        depth: str = "standard",
     ) -> ResearchJob:
         async with self._lock:
             self._cleanup_stale_jobs()
@@ -94,6 +96,7 @@ class JobManager:
                 topic=topic,
                 user_id=user_id or "anonymous",
                 custom_subquestions=custom_subquestions,
+                depth=depth or "standard",
                 status="queued",
             )
             self.jobs[job_id] = job
@@ -155,9 +158,9 @@ class JobManager:
                     user_id=job.user_id,
                 )
                 if job.custom_subquestions:
-                    res = supervisor.execute_research_async(job.topic, job.custom_subquestions)
+                    res = supervisor.execute_research_async(job.topic, job.custom_subquestions, depth=job.depth)
                 else:
-                    res = supervisor.run_async(job.topic)
+                    res = supervisor.run_async(job.topic, depth=job.depth)
 
                 result_dict = {
                     "type": "done",
