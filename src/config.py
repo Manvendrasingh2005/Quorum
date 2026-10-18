@@ -38,3 +38,26 @@ SEARCH_MAX_RESULTS: int = 3      # Tavily results per query (was 5)
 
 # ── Pydantic Validation ─────────────────────────────────────────────────────
 MAX_SCHEMA_RETRIES: int = 2       # retries when model output fails validation
+
+# ── Research Depth Presets ──────────────────────────────────────────────────
+DEPTH_PRESETS: dict[str, dict] = {
+    "flash": {
+        "subquestions": 1,
+        "max_results": 3,
+        "label": "Flash Brief",
+        "description": "Rapid factual verification (~10-12s)",
+    },
+    "standard": {
+        "subquestions": 3,
+        "max_results": 5,
+        "label": "Standard Dossier",
+        "description": "Comprehensive multi-angle research (~20-25s)",
+    },
+    "deep": {
+        "subquestions": 5,
+        "max_results": 8,
+        "label": "Deep Investigation",
+        "description": "Exhaustive deep-dive investigation (~60-90s)",
+    },
+}
+
