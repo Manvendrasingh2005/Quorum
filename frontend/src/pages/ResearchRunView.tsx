@@ -23,6 +23,9 @@ import {
   CornerDownLeft,
   Loader2,
   Radio,
+  Zap,
+  Layers,
+  Scale,
 } from 'lucide-react';
 import { marked } from 'marked';
 import { QuorumLogo } from '../components/logo/QuorumLogo';
@@ -32,6 +35,8 @@ import {
   streamResearchExecution,
   streamResearchWithPlan,
   exportReportPdf,
+  exportReportDocx,
+  verifyCitations,
   AgentLogMessage,
   DonePayload,
 } from '../lib/api';
@@ -39,6 +44,7 @@ import {
 interface ResearchRunViewProps {
   topic: string;
   customSubquestions?: string[];
+  depth?: string;
   onNewResearch: () => void;
   onBackToWorkspace: () => void;
 }
@@ -62,6 +68,7 @@ interface SourceItem {
 export const ResearchRunView: React.FC<ResearchRunViewProps> = ({
   topic,
   customSubquestions,
+  depth = 'standard',
   onNewResearch,
   onBackToWorkspace,
 }) => {
@@ -70,6 +77,11 @@ export const ResearchRunView: React.FC<ResearchRunViewProps> = ({
   const [isCompleted, setIsCompleted] = useState(false);
   const [agentsCollapsed, setAgentsCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isCopiedLink, setIsCopiedLink] = useState(false);
+  const [isExportingDocx, setIsExportingDocx] = useState(false);
+  const [citationStatusMap, setCitationStatusMap] = useState<
+    Record<string, { status: 'verified' | 'unreachable'; statusCode?: number }>
+  >({});
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
 
   // Rejection feedback loop trigger
@@ -352,6 +364,9 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
       setIsCompleted(true);
       setAgentsCollapsed(true);
 
+      // Verify source citations reachability
+      runCitationVerification(defaultSourceList);
+
       // Save to Supabase
       saveResearchToSupabase({
         topic,
@@ -359,6 +374,20 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
         sources: defaultSourceList,
         citationsCount: defaultSourceList.length,
       }).catch((err) => console.warn('Supabase save error:', err));
+    };
+
+    const runCitationVerification = (sourceList: SourceItem[]) => {
+      const urlsToVerify = sourceList.map((s) => s.url).filter((u) => u && u.startsWith('http'));
+      if (urlsToVerify.length === 0) return;
+      verifyCitations(urlsToVerify)
+        .then((verifiedList) => {
+          const statusMap: Record<string, { status: 'verified' | 'unreachable'; statusCode?: number }> = {};
+          verifiedList.forEach((v) => {
+            statusMap[v.url] = { status: v.status, statusCode: v.status_code };
+          });
+          setCitationStatusMap(statusMap);
+        })
+        .catch((err) => console.warn('Citation verification error:', err));
     };
 
     const startExecution = async () => {
@@ -457,6 +486,9 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
         setIsCompleted(true);
         setAgentsCollapsed(true);
 
+        // Run automated citation probe
+        runCitationVerification(activeSources);
+
         // Persist verified research run to Supabase
         saveResearchToSupabase({
           topic,
@@ -501,12 +533,17 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
             metric: `Researching ${customSubquestions.length} questions`,
           });
 
-          cancelActiveStream = streamResearchWithPlan(topic, customSubquestions, {
-            onLog: handleLog,
-            onChunk: handleChunk,
-            onDone: handleDone,
-            onError: handleError,
-          });
+          cancelActiveStream = streamResearchWithPlan(
+            topic,
+            customSubquestions,
+            {
+              onLog: handleLog,
+              onChunk: handleChunk,
+              onDone: handleDone,
+              onError: handleError,
+            },
+            depth
+          );
         } else {
           setPlanner({
             status: 'active',
@@ -517,12 +554,16 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
             metric: 'Deconstructing research topic',
           });
 
-          cancelActiveStream = streamResearchExecution(topic, {
-            onLog: handleLog,
-            onChunk: handleChunk,
-            onDone: handleDone,
-            onError: handleError,
-          });
+          cancelActiveStream = streamResearchExecution(
+            topic,
+            {
+              onLog: handleLog,
+              onChunk: handleChunk,
+              onDone: handleDone,
+              onError: handleError,
+            },
+            depth
+          );
         }
       } else {
         // Fallback to simulated swarm
@@ -536,7 +577,7 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
       isCancelled = true;
       if (cancelActiveStream) cancelActiveStream();
     };
-  }, [topic, customSubquestions]);
+  }, [topic, customSubquestions, depth]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -578,6 +619,32 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
     } finally {
       setIsExportingPdf(false);
     }
+  };
+
+  const handleExportDocx = async () => {
+    try {
+      setIsExportingDocx(true);
+      const blob = await exportReportDocx(topic, reportMarkdown);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Quorum_Report_${topic.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_')}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.warn('Backend Word DOCX export failed:', err);
+    } finally {
+      setIsExportingDocx(false);
+    }
+  };
+
+  const handleSharePermalink = () => {
+    const shareUrl = `${window.location.origin}/?topic=${encodeURIComponent(topic)}&depth=${encodeURIComponent(depth || 'standard')}`;
+    navigator.clipboard.writeText(shareUrl);
+    setIsCopiedLink(true);
+    setTimeout(() => setIsCopiedLink(false), 2000);
   };
 
   const agentCards = [
@@ -649,6 +716,26 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
               }`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${isCompleted ? 'bg-emerald-400' : 'bg-indigo-400'}`} />
                 {isCompleted ? 'Completed' : 'Swarm Active'}
+              </span>
+
+              {/* Research Depth Indicator */}
+              <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono border bg-white/[0.04] text-zinc-300 border-white/10">
+                {depth === 'flash' ? (
+                  <>
+                    <Zap className="w-2.5 h-2.5 text-amber-400" />
+                    <span>Flash Mode (~10s)</span>
+                  </>
+                ) : depth === 'deep' ? (
+                  <>
+                    <Layers className="w-2.5 h-2.5 text-purple-400" />
+                    <span>Deep Mode (~60-90s)</span>
+                  </>
+                ) : (
+                  <>
+                    <Scale className="w-2.5 h-2.5 text-blue-400" />
+                    <span>Standard Mode (~25s)</span>
+                  </>
+                )}
               </span>
 
               {isLiveBackend !== null && (
@@ -898,6 +985,15 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
               {/* Action Buttons */}
               <div className="flex items-center gap-2 flex-wrap">
                 <button
+                  onClick={handleSharePermalink}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-xs font-medium text-white transition-colors cursor-pointer"
+                  title="Copy shareable permalink"
+                >
+                  {isCopiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Share2 className="w-3.5 h-3.5 text-zinc-400" />}
+                  <span>{isCopiedLink ? 'Link Copied!' : 'Share'}</span>
+                </button>
+
+                <button
                   onClick={handleCopyReport}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-xs font-medium text-white transition-colors cursor-pointer"
                 >
@@ -910,7 +1006,21 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-xs font-medium text-white transition-colors cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Export Markdown</span>
+                  <span>Markdown</span>
+                </button>
+
+                <button
+                  onClick={handleExportDocx}
+                  disabled={isExportingDocx}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-xs font-medium text-white transition-colors cursor-pointer disabled:opacity-50"
+                  title="Export formatted Word .docx"
+                >
+                  {isExportingDocx ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                  ) : (
+                    <FileText className="w-3.5 h-3.5 text-blue-400" />
+                  )}
+                  <span>{isExportingDocx ? 'Generating...' : 'DOCX'}</span>
                 </button>
 
                 <button
@@ -953,35 +1063,61 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
 
                   {/* Sources List */}
                   <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-                    {sources.map((src) => (
-                      <a
-                        key={src.id}
-                        href={src.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block p-3 rounded-2xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.06] hover:border-white/15 transition-all group cursor-pointer"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono text-[10px] font-bold">
-                                [{src.id}]
-                              </span>
-                              <span className="text-[11px] font-mono text-zinc-400 group-hover:text-zinc-200">
-                                {src.domain}
-                              </span>
+                    {sources.map((src) => {
+                      const verification = citationStatusMap[src.url];
+                      const faviconUrl = `https://www.google.com/s2/favicons?domain=${src.domain}&sz=32`;
+
+                      return (
+                        <a
+                          key={src.id}
+                          href={src.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block p-3 rounded-2xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.06] hover:border-white/15 transition-all group cursor-pointer"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-1.5 flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono text-[10px] font-bold">
+                                  [{src.id}]
+                                </span>
+                                <img
+                                  src={faviconUrl}
+                                  alt=""
+                                  className="w-3.5 h-3.5 rounded-sm shrink-0 object-contain"
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = 'none';
+                                  }}
+                                />
+                                <span className="text-[11px] font-mono text-zinc-400 group-hover:text-zinc-200 truncate">
+                                  {src.domain}
+                                </span>
+
+                                {verification?.status === 'verified' && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                    <Check className="w-2.5 h-2.5 text-emerald-400" />
+                                    <span>Verified 200 OK</span>
+                                  </span>
+                                )}
+                                {verification?.status === 'unreachable' && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                    <AlertTriangle className="w-2.5 h-2.5 text-amber-400" />
+                                    <span>Archived</span>
+                                  </span>
+                                )}
+                              </div>
+                              <h5 className="text-xs font-semibold text-white leading-snug line-clamp-2 group-hover:text-emerald-300 transition-colors">
+                                {src.title}
+                              </h5>
+                              <p className="text-[11px] text-zinc-500 line-clamp-2 leading-relaxed">
+                                {src.snippet}
+                              </p>
                             </div>
-                            <h5 className="text-xs font-semibold text-white leading-snug line-clamp-2 group-hover:text-emerald-300 transition-colors">
-                              {src.title}
-                            </h5>
-                            <p className="text-[11px] text-zinc-500 line-clamp-2 leading-relaxed">
-                              {src.snippet}
-                            </p>
+                            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 mt-1 transition-colors" />
                           </div>
-                          <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white shrink-0 mt-1 transition-colors" />
-                        </div>
-                      </a>
-                    ))}
+                        </a>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
