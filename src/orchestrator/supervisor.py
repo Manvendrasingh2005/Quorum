@@ -175,23 +175,23 @@ class Supervisor:
 
         return final_report
 
-    def plan_research(self, topic: str, base64_image: str | None = None) -> list[str]:
+    def plan_research(self, topic: str, base64_image: str | None = None, depth: str = "standard") -> list[str]:
         self.metrics.start()
         self._log(f"\n{'=' * 50}")
-        self._log(f"[Supervisor] Starting research planning: {topic or 'Analyzing image...'}")
+        self._log(f"[Supervisor] Starting research planning ({depth} mode): {topic or 'Analyzing image...'}")
         self._log(f"{'=' * 50}\n")
         self._log("[Supervisor] → Planner Agent")
-        subquestions = self.planner.plan(topic, base64_image)
+        subquestions = self.planner.plan(topic, base64_image, depth=depth)
         for i, q in enumerate(subquestions, 1):
             self._log(f"  {i}. {q}")
         return subquestions
 
-    def execute_research_async(self, topic: str, subquestions: list[str]) -> ResearchReport:
+    def execute_research_async(self, topic: str, subquestions: list[str], depth: str = "standard") -> ResearchReport:
         if self.metrics.start_time is None:
             self.metrics.start()
         self.metrics.set_subquestions(len(subquestions))
         # Step 2: Research + Critic loop (concurrent)
-        self._log(f"\n[Supervisor] Dispatching {len(subquestions)} researchers concurrently...")
+        self._log(f"\n[Supervisor] Dispatching {len(subquestions)} researchers concurrently ({depth} mode)...")
 
         findings: list[ResearchFinding] = []
         approved_findings: dict[str, str] = {}
@@ -245,13 +245,14 @@ class Supervisor:
 
         return final_report
 
-    def run_async(self, topic: str) -> ResearchReport:
+    def run_async(self, topic: str, depth: str = "standard") -> ResearchReport:
         """
         Run the pipeline with CONCURRENT researchers entirely.
         This provides backward compatibility with scripts not using HITL.
         """
-        subquestions = self.plan_research(topic)
-        return self.execute_research_async(topic, subquestions)
+        subquestions = self.plan_research(topic, depth=depth)
+        return self.execute_research_async(topic, subquestions, depth=depth)
+
 
 
 # ── CLI Entry Point ───────────────────────────────────────────────────────────
