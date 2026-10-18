@@ -38,9 +38,30 @@ function MainAppShell() {
   const [activeResearchTopic, setActiveResearchTopic] = useState<string>(
     'Compare solid-state batteries vs lithium-ion for grid-scale energy storage'
   );
+  const [activeResearchDepth, setActiveResearchDepth] = useState<string>('standard');
   const [planSubquestions, setPlanSubquestions] = useState<string[]>([]);
   const [customSubquestions, setCustomSubquestions] = useState<string[] | undefined>(undefined);
   const [isPlanLoading, setIsPlanLoading] = useState(false);
+
+  // Restore topic and depth from shareable permalink if present
+  React.useEffect(() => {
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const permalinkTopic = searchParams.get('topic') || searchParams.get('q');
+      const permalinkDepth = searchParams.get('depth');
+      if (permalinkTopic) {
+        setActiveResearchTopic(decodeURIComponent(permalinkTopic));
+        if (permalinkDepth && ['flash', 'standard', 'deep'].includes(permalinkDepth)) {
+          setActiveResearchDepth(permalinkDepth);
+        }
+        if (user) {
+          setCurrentView('app');
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse URL query params:', e);
+    }
+  }, [user]);
 
   const handleReplayIntro = () => {
     sessionStorage.removeItem('quorum_intro_seen');
@@ -57,15 +78,20 @@ function MainAppShell() {
     setCurrentView('landing');
   };
 
-  const handleStartResearch = async (query: string, options?: { image?: string | null }) => {
+  const handleStartResearch = async (
+    query: string,
+    options?: { image?: string | null; depth?: string }
+  ) => {
     setActiveResearchTopic(query);
+    const depth = options?.depth || activeResearchDepth;
+    setActiveResearchDepth(depth);
 
     // Try to get a plan from the backend first (HITL flow)
     setIsPlanLoading(true);
     try {
       const isOnline = await checkBackendHealth();
       if (isOnline) {
-        const subs = await generateResearchPlan(query, options?.image || null);
+        const subs = await generateResearchPlan(query, options?.image || null, depth);
         if (subs && subs.length > 0) {
           setPlanSubquestions(subs);
           setCurrentView('plan');
@@ -132,6 +158,7 @@ function MainAppShell() {
         <ResearchRunView
           topic={activeResearchTopic}
           customSubquestions={customSubquestions}
+          depth={activeResearchDepth}
           onNewResearch={() => {
             setCustomSubquestions(undefined);
             setCurrentView('app');
