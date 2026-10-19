@@ -1,14 +1,56 @@
+# ==============================================================================
+# Quorum AI Multi-Agent Platform - Docker Compose Orchestration
+# ==============================================================================
+
 version: '3.8'
 
 services:
-  quorum-app:
-    build: .
-    container_name: quorum-ai
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quorum-backend
     ports:
-      - "8501:8501"
-    volumes:
-      - ./.chroma_db:/app/.chroma_db
-      - ./research_history.db:/app/research_history.db
+      - "8000:8000"
     env_file:
       - .env
+    environment:
+      - PORT=8000
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - chroma_data:/app/.chroma_db
+      - history_data:/app/data
     restart: unless-stopped
+    networks:
+      - quorum-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; sys_exit = 0 if urllib.request.urlopen('http://localhost:8000/api/health').getcode() == 200 else 1; exit(sys_exit)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: quorum-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - quorum-network
+
+volumes:
+  chroma_data:
+    name: quorum_chroma_data
+  history_data:
+    name: quorum_history_data
+
+networks:
+  quorum-network:
+    name: quorum_network
+    driver: bridge
