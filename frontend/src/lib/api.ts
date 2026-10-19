@@ -426,3 +426,19 @@ export async function verifyCitations(urls: string[]): Promise<{ url: string; do
     return [];
   }
 }
+
+/**
+ * Fetch real-time system metrics, latency percentiles, and Critic audit telemetry.
+ */
+export async function fetchSystemMetrics(): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE}/api/metrics`, {
+      method: 'GET',
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
