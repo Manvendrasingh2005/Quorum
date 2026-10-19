@@ -1,7 +1,33 @@
+# Python and virtual environments
 venv/
-.env
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pytest_cache/
+
+# Git and CI/CD
 .git/
+.github/
+.gitignore
+
+# Database & persistence (mounted via Docker volumes)
 .chroma_db/
 research_history.db
-__pycache__/
-*.pyc
+*.db
+*.sqlite
+
+# Secrets & environment configurations
+.env
+.env.*
+!.env.example
+
+# Frontend workspace (built separately in frontend Dockerfile)
+frontend/
+
+# Logs and scratch output
+*.log
+logs/
+error_out.txt
+test_output.txt
+scratch/
