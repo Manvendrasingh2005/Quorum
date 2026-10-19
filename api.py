@@ -24,8 +24,17 @@ load_dotenv()
 from src.orchestrator.supervisor import Supervisor
 from src.orchestrator.job_manager import job_manager, parse_agent_log
 from src.memory.db import get_recent_reports
+from src.observability import (
+    TelemetryMiddleware,
+    get_telemetry_metrics,
+    structured_logger,
+    telemetry_store,
+)
 
 app = FastAPI(title="Quorum API")
+
+# Telemetry and Structured Request Logging Middleware
+app.add_middleware(TelemetryMiddleware)
 
 # Allow CORS for the Vite frontend (which usually runs on localhost:5173)
 app.add_middleware(
@@ -148,6 +157,14 @@ class DocxRequest(BaseModel):
 async def health_check():
     """Health check endpoint to verify backend connectivity."""
     return {"status": "ok", "app": "Quorum API", "version": "1.0.0"}
+
+@app.get("/api/metrics")
+async def telemetry_metrics():
+    """
+    Observability endpoint providing real-time telemetry metrics, agent latency,
+    and Critic adversarial audit statistics.
+    """
+    return get_telemetry_metrics()
 
 @app.post("/api/plan")
 async def generate_plan(request: Request, body: PlanRequest):
