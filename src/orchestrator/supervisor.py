@@ -19,6 +19,7 @@ from src.agents.writer import WriterAgent
 from src.models.schemas import ResearchFinding, CriticVerdict, ResearchReport
 from src.config import MAX_CRITIC_RETRIES
 from src.memory import memory, save_report
+from src.observability.telemetry import AgentSpan, telemetry_store
 
 
 class Supervisor:
@@ -79,12 +80,15 @@ class Supervisor:
                 f"[Supervisor] Sub-question {question_index}/{total_questions} "
                 f"→ Researcher (attempt {attempt + 1})"
             )
-            answer = self.researcher.research(question, critic_feedback=feedback)
+            with AgentSpan("Researcher", topic=question):
+                answer = self.researcher.research(question, critic_feedback=feedback)
 
             # Critic step
             self._log(f"[Supervisor] → Critic reviewing...")
-            verdict = self.critic.review(question, answer)
+            with AgentSpan("Critic", topic=question):
+                verdict = self.critic.review(question, answer)
             last_verdict = verdict
+            telemetry_store.record_critic_verdict(verdict.approved)
 
             if verdict.approved:
                 self._log(
@@ -154,10 +158,11 @@ class Supervisor:
         # Step 3: Write
         self._log(f"\n{'-' * 40}")
         self._log(f"[Supervisor] → Writer Agent (synthesizing {len(findings)} findings)")
-        if self._on_chunk:
-            report = self.writer.synthesize_stream(topic, approved_findings, on_chunk=self._on_chunk)
-        else:
-            report = self.writer.synthesize(topic, approved_findings)
+        with AgentSpan("Writer", topic=topic):
+            if self._on_chunk:
+                report = self.writer.synthesize_stream(topic, approved_findings, on_chunk=self._on_chunk)
+            else:
+                report = self.writer.synthesize(topic, approved_findings)
 
         self._log(f"\n{'=' * 50}")
         self._log(f"[Supervisor] ✅ Research complete!")
@@ -181,7 +186,8 @@ class Supervisor:
         self._log(f"[Supervisor] Starting research planning ({depth} mode): {topic or 'Analyzing image...'}")
         self._log(f"{'=' * 50}\n")
         self._log("[Supervisor] → Planner Agent")
-        subquestions = self.planner.plan(topic, base64_image, depth=depth)
+        with AgentSpan("Planner", topic=topic):
+            subquestions = self.planner.plan(topic, base64_image, depth=depth)
         for i, q in enumerate(subquestions, 1):
             self._log(f"  {i}. {q}")
         return subquestions
@@ -224,10 +230,11 @@ class Supervisor:
         # Step 3: Write
         self._log(f"\n{'-' * 40}")
         self._log(f"[Supervisor] → Writer Agent (synthesizing {len(findings)} findings)")
-        if self._on_chunk:
-            report = self.writer.synthesize_stream(topic, approved_findings, on_chunk=self._on_chunk)
-        else:
-            report = self.writer.synthesize(topic, approved_findings)
+        with AgentSpan("Writer", topic=topic):
+            if self._on_chunk:
+                report = self.writer.synthesize_stream(topic, approved_findings, on_chunk=self._on_chunk)
+            else:
+                report = self.writer.synthesize(topic, approved_findings)
 
         self._log(f"\n{'=' * 50}")
         self._log(f"[Supervisor] ASYNC research complete!")
