@@ -15,6 +15,7 @@ import json
 from typing import AsyncGenerator
 from dataclasses import dataclass, field
 from src.orchestrator.supervisor import Supervisor
+from src.observability.telemetry import telemetry_store
 
 
 def parse_agent_log(msg: str) -> dict:
@@ -100,6 +101,7 @@ class JobManager:
                 status="queued",
             )
             self.jobs[job_id] = job
+            telemetry_store.record_job_created()
             return job
 
     def _cleanup_stale_jobs(self):
@@ -174,6 +176,7 @@ class JobManager:
                     job.completed_at = time.time()
                     job.result = result_dict
                     self._broadcast_event(job, "agent_log", json.dumps(result_dict))
+                    telemetry_store.record_job_completed(success=True)
 
                 loop.call_soon_threadsafe(mark_completed)
 
@@ -183,6 +186,7 @@ class JobManager:
                     job.completed_at = time.time()
                     job.error = err_msg
                     self._broadcast_event(job, "error", json.dumps({"error": err_msg}))
+                    telemetry_store.record_job_completed(success=False)
 
                 loop.call_soon_threadsafe(mark_failed, str(e))
 
