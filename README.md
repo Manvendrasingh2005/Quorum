@@ -167,6 +167,56 @@ streamlit run app.py
 
 ---
 
+---
+
+## 🐳 Production Containerization (Docker Compose)
+
+Quorum provides a multi-container production stack orchestrating the FastAPI backend and Nginx-powered React frontend with zero manual configuration.
+
+### One-Command Deployment
+
+```bash
+docker compose up --build -d
+```
+
+- **Frontend Gateway**: [http://localhost:3000](http://localhost:3000) (Nginx with SSE streaming optimization & SPA routing)
+- **Backend API**: [http://localhost:8000](http://localhost:8000) (Uvicorn ASGI runner)
+- **Telemetry & Health Metrics**: [http://localhost:8000/api/metrics](http://localhost:8000/api/metrics)
+- **API Health Check**: [http://localhost:8000/api/health](http://localhost:8000/api/health)
+
+To inspect logs:
+```bash
+docker compose logs -f
+```
+
+---
+
+## 🔭 Real-Time Observability & Structured Telemetry
+
+Quorum includes built-in OpenTelemetry-compatible tracing and structured JSON logging for enterprise production monitoring:
+
+1. **Correlation IDs (`X-Correlation-ID`)**: Every HTTP request is assigned a unique UUID propagation header tracked across all downstream agent calls.
+2. **Structured JSON Logs**: Formatted for Datadog, Grafana Loki, or CloudWatch:
+   ```json
+   {
+     "timestamp": "2026-10-19T18:32:55.661997+00:00",
+     "level": "INFO",
+     "logger": "quorum.telemetry",
+     "message": "GET /api/metrics - 200 (3.1ms)",
+     "service": "quorum-ai",
+     "event": "http_request",
+     "status_code": 200,
+     "latency_ms": 3.06,
+     "trace_id": "e7f0c921-dcb1-486d-bb76-d120252a2bfc"
+   }
+   ```
+3. **Agent Latency Spans (`AgentSpan`)**: Measures granular execution durations for Planner, Researcher, Critic, and Writer agents.
+4. **Adversarial Audit Statistics**: Real-time tracking of Critic approval vs. rejection rates to detect prompt drift and hallucination risks.
+
+Inspect metrics live via `GET /api/metrics`.
+
+---
+
 ## 📊 Offline Evaluation Suite
 
 Measure Quorum's multi-agent performance against a single-prompt baseline on Factual Accuracy, Citation Quality, Recency, and Completeness:
@@ -181,12 +231,18 @@ python -m src.evaluation.evaluator
 
 ```
 research-agent/
-├── api.py                     # FastAPI backend (SSE streaming, /api/plan, /api/execute, PDF export)
-├── app.py                     # Streamlit application dashboard
+├── api.py                     # FastAPI backend (JobManager, SSE streaming, DOCX/PDF export, /api/metrics)
+├── Dockerfile                 # Multi-stage lightweight Python 3.11 backend Dockerfile
+├── docker-compose.yml         # Production multi-service orchestration (Backend + Frontend)
+├── .dockerignore              # Clean container build exclusions
 ├── src/
-│   ├── config.py              # Centralized role model routing & tuning parameters
+│   ├── config.py              # Centralized role model routing & depth mode presets (Flash, Standard, Deep)
+│   ├── observability/         # Structured JSON logging, telemetry store, and AgentSpan tracers
+│   │   ├── __init__.py
+│   │   └── telemetry.py
 │   ├── orchestrator/
-│   │   └── supervisor.py      # Pure-Python orchestrator, concurrent executor & metrics
+│   │   ├── supervisor.py      # Pure-Python orchestrator, concurrent executor & metrics
+│   │   └── job_manager.py     # Asynchronous job queue, event buffer & reconnectable SSE engine
 │   ├── agents/
 │   │   ├── base.py            # Base agent with retry fallback, token caps & tool loop
 │   │   ├── planner.py         # Planner agent (multimodal topic decomposition)
@@ -199,17 +255,20 @@ research-agent/
 │   ├── models/
 │   │   └── schemas.py         # Pydantic schemas (verdicts, findings, reports)
 │   └── memory/                # SQLite & ChromaDB vector store integration
-└── frontend/                  # React + Vite production application
-    ├── src/
-    │   ├── App.tsx            # Main application coordinator & view router
-    │   ├── pages/
-    │   │   ├── PlanReviewView.tsx    # Step 1: HITL sub-question editor
-    │   │   ├── ResearchRunView.tsx   # Step 2: Live SSE swarm execution monitor
-    │   │   ├── AppShell.tsx          # Workspace & query submission interface
-    │   │   └── LandingPage.tsx       # Obsidian-aesthetic landing page
-    │   └── lib/
-    │       ├── api.ts         # Typed API client with fetch ReadableStream SSE
-    │       └── supabase.ts    # Supabase authentication & history persistence
+└── frontend/                  # React 18 + Vite production application
+    ├── Dockerfile             # Multi-stage Node.js build to Nginx Alpine runner
+    ├── nginx.conf             # Production Nginx reverse proxy with SSE stream optimizations
+    ├── .dockerignore          # Frontend container build exclusions
+    └── src/
+        ├── App.tsx            # Main application coordinator & view router with permalink restoration
+        ├── pages/
+        │   ├── PlanReviewView.tsx    # Step 1: HITL sub-question editor
+        │   ├── ResearchRunView.tsx   # Step 2: Live SSE swarm monitor, DOCX export & favicon sources
+        │   ├── AppShell.tsx          # Workspace & query submission interface with depth selector
+        │   └── LandingPage.tsx       # Obsidian-aesthetic landing page
+        └── lib/
+            ├── api.ts         # Typed API client with reconnectable SSE, DOCX export, and citation verification
+            └── supabase.ts    # Supabase authentication & history persistence
 ```
 
 ---
