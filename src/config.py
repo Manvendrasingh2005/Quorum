@@ -13,51 +13,61 @@ GEMINI_API_KEY: str = os.environ["GEMINI_API_KEY"]
 TAVILY_API_KEY: str = os.environ["TAVILY_API_KEY"]
 
 # ── Model Configuration ──────────────────────────────────────────────────────
-# All free-tier Gemini models. Each agent role gets a different PRIMARY model
-# so the Critic isn't grading its own model's work.
+# High-concurrency, ultra-low-latency Gemini models.
+# Each agent role receives a distinct primary model to prevent self-grading bias.
 ALL_MODELS: tuple[str, ...] = (
+    "gemini-3-flash-preview",
+    "gemini-3.5-flash",
     "gemini-flash-lite-latest",
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
 )
 
 # Role → preferred model chain (first = primary, rest = fallback)
 ROLE_MODELS: dict[str, tuple[str, ...]] = {
-    "planner":    ("gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"),
-    "researcher": ("gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite"),
-    "critic":     ("gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"),
-    "writer":     ("gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"),
+    "planner":    ("gemini-3-flash-preview", "gemini-3.5-flash", "gemini-flash-lite-latest"),
+    "researcher": ("gemini-3-flash-preview", "gemini-3.5-flash", "gemini-flash-lite-latest"),
+    "critic":     ("gemini-3.5-flash", "gemini-3-flash-preview", "gemini-flash-lite-latest"),
+    "writer":     ("gemini-3-flash-preview", "gemini-3.5-flash", "gemini-flash-lite-latest"),
 }
 
 # ── Agent Parameters ─────────────────────────────────────────────────────────
-MODEL_ATTEMPTS: int = 1           # retries per model before falling back (was 2)
-MAX_RESEARCH_STEPS: int = 3       # tool-call steps per Researcher sub-question (was 4)
-MAX_SUBQUESTIONS: int = 3         # cap on planner output (was 4)
-MAX_CRITIC_RETRIES: int = 1       # times Critic can reject before force-accept (was 2)
-SEARCH_MAX_RESULTS: int = 3      # Tavily results per query (was 5)
+MODEL_ATTEMPTS: int = 1           # retries per model before falling back
+MAX_RESEARCH_STEPS: int = 2       # tool-call steps per Researcher sub-question for speed
+MAX_SUBQUESTIONS: int = 3         # cap on standard planner output
+MAX_CRITIC_RETRIES: int = 1       # times Critic can reject before force-accept
+SEARCH_MAX_RESULTS: int = 3      # Tavily results per query
+DEFAULT_SOCKET_TIMEOUT: float = 15.0  # HTTP socket timeout guard in seconds
 
 # ── Pydantic Validation ─────────────────────────────────────────────────────
-MAX_SCHEMA_RETRIES: int = 2       # retries when model output fails validation
+MAX_SCHEMA_RETRIES: int = 1       # retries when model output fails validation
 
 # ── Research Depth Presets ──────────────────────────────────────────────────
 DEPTH_PRESETS: dict[str, dict] = {
     "flash": {
         "subquestions": 1,
-        "max_results": 3,
+        "max_results": 2,
+        "timeout": 20.0,
         "label": "Flash Brief",
-        "description": "Rapid factual verification (~10-12s)",
+        "description": "Rapid factual verification (~10s)",
     },
     "standard": {
         "subquestions": 3,
-        "max_results": 5,
+        "max_results": 3,
+        "timeout": 30.0,
         "label": "Standard Dossier",
         "description": "Comprehensive multi-angle research (~20-25s)",
     },
     "deep": {
-        "subquestions": 5,
-        "max_results": 8,
+        "subquestions": 4,
+        "max_results": 4,
+        "timeout": 35.0,
         "label": "Deep Investigation",
-        "description": "Exhaustive deep-dive investigation (~60-90s)",
+        "description": "Exhaustive deep-dive investigation (~40-50s)",
     },
 }
+
+
+def get_depth_preset(depth: str) -> dict:
+    """Return preset configuration for the specified research depth."""
+    return DEPTH_PRESETS.get(depth.lower(), DEPTH_PRESETS["standard"])
+
 
