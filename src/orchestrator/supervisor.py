@@ -17,7 +17,7 @@ from src.agents.researcher import ResearcherAgent
 from src.agents.critic import CriticAgent
 from src.agents.writer import WriterAgent
 from src.models.schemas import ResearchFinding, CriticVerdict, ResearchReport
-from src.config import MAX_CRITIC_RETRIES
+from src.config import MAX_CRITIC_RETRIES, get_depth_preset
 from src.memory import memory, save_report
 from src.observability.telemetry import AgentSpan, telemetry_store
 
@@ -54,9 +54,9 @@ class Supervisor:
     def _log(self, msg: str):
         """Print and optionally callback with status."""
         try:
-            print(msg)
+            print(msg, flush=True)
         except UnicodeEncodeError:
-            print(msg.encode('ascii', errors='replace').decode('ascii'))
+            print(msg.encode('ascii', errors='replace').decode('ascii'), flush=True)
         self._status(msg)
 
     def _research_with_critic_loop(
@@ -196,8 +196,11 @@ class Supervisor:
         if self.metrics.start_time is None:
             self.metrics.start()
         self.metrics.set_subquestions(len(subquestions))
+        preset = get_depth_preset(depth)
+        timeout_sec = float(preset.get("timeout", 45.0))
+
         # Step 2: Research + Critic loop (concurrent)
-        self._log(f"\n[Supervisor] Dispatching {len(subquestions)} researchers concurrently ({depth} mode)...")
+        self._log(f"\n[Supervisor] Dispatching {len(subquestions)} researchers concurrently ({depth} mode, safety timeout: {int(timeout_sec)}s)...")
 
         findings: list[ResearchFinding] = []
         approved_findings: dict[str, str] = {}
@@ -212,20 +215,44 @@ class Supervisor:
                 for i, q in enumerate(subquestions, 1)
             }
 
-            for future in concurrent.futures.as_completed(future_to_question):
-                q = future_to_question[future]
-                try:
-                    finding = future.result()
-                    findings.append(finding)
-                    approved_findings[q] = finding.answer
-                except Exception as e:
-                    self._log(f"[Supervisor] ❌ Research failed for: {q[:50]}... — {e}")
-                    approved_findings[q] = f"Research failed: {e}"
-                    findings.append(ResearchFinding(
-                        question=q,
-                        answer=f"Research failed: {e}",
-                        critic_attempts=0,
-                    ))
+            try:
+                for future in concurrent.futures.as_completed(future_to_question, timeout=timeout_sec):
+                    q = future_to_question[future]
+                    try:
+                        finding = future.result(timeout=2.0)
+                        findings.append(finding)
+                        approved_findings[q] = finding.answer
+                    except Exception as e:
+                        self._log(f"[Supervisor] ❌ Research failed for: {q[:50]}... — {e}")
+                        approved_findings[q] = f"Research failed: {e}"
+                        findings.append(ResearchFinding(
+                            question=q,
+                            answer=f"Research failed: {e}",
+                            critic_attempts=0,
+                        ))
+            except concurrent.futures.TimeoutError:
+                self._log(f"[Supervisor] ⚠️ Execution safety timeout reached ({int(timeout_sec)}s). Collecting ready findings and synthesizing report...")
+                for future, q in future_to_question.items():
+                    if q not in approved_findings:
+                        if future.done():
+                            try:
+                                finding = future.result()
+                                findings.append(finding)
+                                approved_findings[q] = finding.answer
+                            except Exception as e:
+                                approved_findings[q] = f"Sub-topic timed out: {e}"
+                                findings.append(ResearchFinding(
+                                    question=q,
+                                    answer=f"Sub-topic timed out: {e}",
+                                    critic_attempts=0,
+                                ))
+                        else:
+                            approved_findings[q] = f"Sub-topic investigation timed out after {int(timeout_sec)}s."
+                            findings.append(ResearchFinding(
+                                question=q,
+                                answer=f"Sub-topic investigation timed out after {int(timeout_sec)}s.",
+                                critic_attempts=0,
+                            ))
 
         # Step 3: Write
         self._log(f"\n{'-' * 40}")
