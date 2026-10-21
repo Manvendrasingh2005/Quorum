@@ -435,8 +435,16 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
           }));
         } else {
           // Supervisor system routing
-          if (logMsg.toLowerCase().includes('researcher')) {
+          const lower = logMsg.toLowerCase();
+          if (lower.includes('dispatching') && lower.includes('researcher')) {
+            setPlanner((prev) => ({ ...prev, status: 'done', metric: 'Plan finalized' }));
             setResearcher((prev) => ({
+              status: 'active',
+              logs: [...prev.logs.slice(-7), logMsg],
+              metric: 'Dispatching researchers',
+            }));
+          } else if (lower.includes('planning') || lower.includes('planner')) {
+            setPlanner((prev) => ({
               status: 'active',
               logs: [...prev.logs.slice(-7), logMsg],
             }));
