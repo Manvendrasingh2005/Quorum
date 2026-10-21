@@ -32,6 +32,7 @@ from src.config import (
     ROLE_MODELS,
     MODEL_ATTEMPTS,
     MAX_SCHEMA_RETRIES,
+    DEFAULT_SOCKET_TIMEOUT,
 )
 from src.tools.search import SEARCH_DECLARATION, search_web
 from src.tools.pdf import PDF_DECLARATION, read_pdf_url
@@ -42,8 +43,11 @@ TOOL_FUNCTIONS = {
 }
 
 
-# ── Shared Gemini Client ──────────────────────────────────────────────────────
-_client = genai.Client(api_key=GEMINI_API_KEY)
+# ── Shared Gemini Client (Guarded with Network Socket Timeout) ────────────────
+_client = genai.Client(
+    api_key=GEMINI_API_KEY,
+    http_options=types.HttpOptions(timeout=int(DEFAULT_SOCKET_TIMEOUT * 1000)),
+)
 
 
 # ── Metrics (Thread-Safe, Session-Scoped) ────────────────────────────────────
@@ -51,11 +55,11 @@ class RunMetrics:
     """Tracks everything measurable about a research run."""
 
     def __init__(self):
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.reset()
 
     def reset(self):
-        with getattr(self, '_lock', threading.Lock()):
+        with getattr(self, '_lock', threading.RLock()):
             self.start_time: float | None = None
             self.model_calls: int = 0
             self.search_calls: int = 0
@@ -225,27 +229,39 @@ class BaseAgent:
             for attempt in range(MODEL_ATTEMPTS):
                 try:
                     self.metrics.inc_model_calls()
+                    t_call = time.perf_counter()
+                    print(f"    [{self.role}] calling model {model} (attempt {attempt + 1}/{MODEL_ATTEMPTS})...", flush=True)
                     response = _client.models.generate_content(
                         model=model, contents=contents, config=cfg
                     )
+                    call_ms = (time.perf_counter() - t_call) * 1000
+                    print(f"    [{self.role}] model {model} responded in {call_ms:.0f}ms", flush=True)
                     self.metrics.record_model_use(self.role, model)
                     return response
                 except errors.ServerError as e:
                     last_error = e
                     if attempt + 1 < MODEL_ATTEMPTS:
-                        wait = 2  # flat 2s wait for speed
-                        print(f"    [{self.role}] {model} busy ({e.code}), retrying in {wait}s...")
+                        wait = 1
+                        print(f"    [{self.role}] {model} server busy ({e.code}), retrying in {wait}s...")
                         self.metrics.inc_retry_events()
                         time.sleep(wait)
                     elif model_index + 1 < len(models):
-                        print(f"    [{self.role}] {model} unavailable; trying {models[model_index + 1]}...")
+                        print(f"    [{self.role}] {model} server error ({e.code}); falling back to {models[model_index + 1]}...")
                         self.metrics.inc_fallback_events()
+                        break
                 except errors.ClientError as e:
-                    if e.code != 429:
-                        raise
                     last_error = e
                     if model_index + 1 < len(models):
-                        print(f"    [{self.role}] {model} quota exhausted; trying {models[model_index + 1]}...")
+                        print(f"    [{self.role}] {model} client issue ({e.code}); falling back to {models[model_index + 1]}...")
+                        self.metrics.inc_fallback_events()
+                        break
+                    if e.code != 429:
+                        raise
+                except Exception as e:
+                    # Catch socket timeouts, WinError connection drops, DNS failures
+                    last_error = e
+                    if model_index + 1 < len(models):
+                        print(f"    [{self.role}] {model} connection error ({type(e).__name__}); falling back to {models[model_index + 1]}...")
                         self.metrics.inc_fallback_events()
                         break
 
@@ -272,15 +288,24 @@ class BaseAgent:
                 except errors.ServerError as e:
                     last_error = e
                     if attempt + 1 < MODEL_ATTEMPTS:
-                        time.sleep(2)
+                        time.sleep(1)
                         self.metrics.inc_retry_events()
                     elif model_index + 1 < len(models):
+                        print(f"    [{self.role}] Stream {model} server error ({e.code}); trying {models[model_index + 1]}...")
                         self.metrics.inc_fallback_events()
+                        break
                 except errors.ClientError as e:
-                    if e.code != 429:
-                        raise
                     last_error = e
                     if model_index + 1 < len(models):
+                        print(f"    [{self.role}] Stream {model} client issue ({e.code}); trying {models[model_index + 1]}...")
+                        self.metrics.inc_fallback_events()
+                        break
+                    if e.code != 429:
+                        raise
+                except Exception as e:
+                    last_error = e
+                    if model_index + 1 < len(models):
+                        print(f"    [{self.role}] Stream {model} connection error ({type(e).__name__}); trying {models[model_index + 1]}...")
                         self.metrics.inc_fallback_events()
                         break
 
@@ -382,18 +407,22 @@ class BaseAgent:
                 )
                 response = self._ask(correction_prompt)
 
-            last_text = response.text.strip()
+            last_text = response.text.strip() if response.text else ""
+            print(f"    [{self.role}] model output len={len(last_text)}, extracting json...", flush=True)
             json_str = self._extract_json(last_text)
+            print(f"    [{self.role}] validating with schema {schema.__name__}...", flush=True)
 
             try:
                 data = json.loads(json_str)
-                return schema.model_validate(data)
+                result = schema.model_validate(data)
+                print(f"    [{self.role}] validation success!", flush=True)
+                return result
             except json.JSONDecodeError as e:
                 validation_error = f"Invalid JSON: {e}"
-                print(f"    [{self.role}] [!] JSON parse failed (attempt {attempt + 1}): {e}")
+                print(f"    [{self.role}] [!] JSON parse failed (attempt {attempt + 1}): {e}", flush=True)
             except ValidationError as e:
                 validation_error = str(e)
-                print(f"    [{self.role}] [!] Schema validation failed (attempt {attempt + 1})")
+                print(f"    [{self.role}] [!] Schema validation failed (attempt {attempt + 1}): {e}", flush=True)
 
         # If all retries exhausted, raise
         raise ValueError(
