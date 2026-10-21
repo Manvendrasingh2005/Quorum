@@ -51,10 +51,26 @@ class PlannerAgent(BaseAgent):
         try:
             result = self._validated_ask(prompt, SubQuestionPlan, image_data=base64_image)
             questions = result.sub_questions[:target_count]
-        except ValueError:
-            # If validation completely fails, fall back to using topic directly
-            print(f"  [Planner] [!] Validation failed, using topic as single question.")
-            questions = [topic]
+        except Exception as e:
+            # Fallback decomposition to ensure deep research NEVER stalls on network blips
+            print(f"  [Planner] [!] Decomposition failed ({e}), generating deterministic subquestions.")
+            clean_topic = topic.strip() if topic else "Current research topic"
+            if target_count == 1:
+                questions = [f"Core breakthroughs, current operational status, and latest benchmarks for {clean_topic}"]
+            elif target_count <= 3:
+                questions = [
+                    f"Current technological architecture and latest milestone breakthroughs in {clean_topic}",
+                    f"Leading commercial developers, pilot projects, and market deployment timelines for {clean_topic}",
+                    f"Key economic, regulatory, and engineering bottlenecks facing {clean_topic}",
+                ][:target_count]
+            else:
+                questions = [
+                    f"Current technological architecture and scientific breakthroughs in {clean_topic}",
+                    f"Leading private companies, pilot plants, and deployment status for {clean_topic}",
+                    f"Regulatory framework, safety licensing, and government policy governing {clean_topic}",
+                    f"Primary supply chain, materials, and economic cost bottlenecks for {clean_topic}",
+                    f"Projected commercial viability, grid integration, and competitive outlook for {clean_topic}",
+                ][:target_count]
 
         self.metrics.set_subquestions(len(questions))
         self.metrics.log_message("planner", "supervisor", "result",
