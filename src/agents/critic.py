@@ -55,7 +55,7 @@ class CriticAgent(BaseAgent):
 
         try:
             verdict = self._validated_ask(prompt, CriticVerdict)
-        except ValueError as e:
+        except Exception as e:
             print(f"  [Critic] [!] Could not parse verdict, defaulting to approve: {e}")
             verdict = CriticVerdict(
                 approved=True,
