@@ -57,7 +57,9 @@ def parse_status_message(msg: str) -> dict:
     is_rejection = False
     is_approval = False
 
-    if "[Planner]" in msg_str or "Planner Agent" in msg_str or "planning:" in msg_str.lower():
+    if "[Supervisor]" in msg_str:
+        agent = "Supervisor"
+    elif "[Planner]" in msg_str or "Planner Agent" in msg_str or "planning" in msg_str.lower():
         agent = "Planner"
     elif "[Critic]" in msg_str or "Critic" in msg_str:
         agent = "Critic"
@@ -65,12 +67,17 @@ def parse_status_message(msg: str) -> dict:
             is_rejection = True
         elif "APPROVED" in msg_str or "✅" in msg_str:
             is_approval = True
-    elif "[Researcher]" in msg_str or "Researcher" in msg_str or "search" in msg_str.lower() or "arxiv" in msg_str.lower():
+    elif (
+        "[Researcher]" in msg_str
+        or "Researcher" in msg_str
+        or "[search]" in msg_str.lower()
+        or "searching:" in msg_str.lower()
+        or "tavily" in msg_str.lower()
+        or "arxiv" in msg_str.lower()
+    ):
         agent = "Researcher"
     elif "[Writer]" in msg_str or "Writer Agent" in msg_str or "synthesiz" in msg_str.lower():
         agent = "Writer"
-    elif "[Supervisor]" in msg_str:
-        agent = "Supervisor"
 
     return {
         "agent": agent,
