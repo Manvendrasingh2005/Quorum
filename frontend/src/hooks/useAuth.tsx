@@ -43,6 +43,10 @@ function mapSupabaseUser(sbUser: any): User {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
+    if (isSupabaseConfigured) {
+      localStorage.removeItem('quorum_mock_user');
+      return null;
+    }
     const saved = localStorage.getItem('quorum_mock_user');
     return saved ? JSON.parse(saved) : null;
   });
@@ -102,14 +106,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             redirectTo: window.location.origin,
           },
         });
-        setIsLoading(false);
         if (error) {
+          setIsLoading(false);
           console.warn('Google OAuth error:', error);
           return {
             error:
               'Google login is not enabled yet in your Supabase project. Please create an account or sign in with your email & password below, or enable the Google provider in your Supabase Dashboard.',
           };
         }
+        // Redirect is initiated by browser; keep isLoading true to avoid screen flashes
         return {};
       } catch (err: any) {
         setIsLoading(false);
@@ -123,13 +128,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const fallbackMockLogin = () => {
-    const googleUser: User = {
-      id: 'usr_google_123',
-      name: 'Alex Rivera',
-      email: 'alex.rivera@gmail.com',
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=faces',
+    const guestUser: User = {
+      id: 'usr_guest_demo',
+      name: 'Guest Researcher',
+      email: 'guest@quorum.internal',
+      avatarUrl: undefined,
     };
-    setUser(googleUser);
+    setUser(guestUser);
   };
 
   const login = async (email: string, password: string) => {
