@@ -38,7 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   onSignOut,
 }) => {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
@@ -200,15 +200,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className="flex items-center gap-2.5 overflow-hidden">
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-xs font-bold text-zinc-950 shrink-0">
-              {user?.name ? user.name[0].toUpperCase() : 'A'}
+              {user?.name ? user.name[0].toUpperCase() : (user?.email ? user.email[0].toUpperCase() : 'U')}
             </div>
             {!isCollapsed && (
               <div className="text-left truncate">
                 <p className="text-xs font-medium text-white truncate">
-                  {user?.name || 'Alex Rivera'}
+                  {user?.name || (isLoading ? 'Authenticating...' : (user?.email ? user.email.split('@')[0] : 'Researcher'))}
                 </p>
                 <p className="text-[11px] text-zinc-500 truncate">
-                  {user?.email || 'alex.rivera@gmail.com'}
+                  {user?.email || (isLoading ? 'Syncing profile...' : '')}
                 </p>
               </div>
             )}
