@@ -13,6 +13,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { isSupabaseConfigured } from '../lib/supabase';
 import { QuorumLogo } from '../components/logo/QuorumLogo';
 
 interface AuthPageProps {
@@ -32,6 +33,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBackToLanding, onAuthSucce
   const [showPassword, setShowPassword] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -80,18 +82,20 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBackToLanding, onAuthSucce
 
   const handleGoogleLogin = async () => {
     try {
-      setIsLoading(true);
+      setIsGoogleLoading(true);
       setGeneralError(null);
       const res = await loginWithGoogle();
       if (res?.error) {
         setGeneralError(res.error);
-      } else {
+        setIsGoogleLoading(false);
+      } else if (!isSupabaseConfigured) {
         onAuthSuccess();
+        setIsGoogleLoading(false);
       }
+      // If isSupabaseConfigured is true, browser redirects to Google OAuth; keep isGoogleLoading active
     } catch {
       setGeneralError('Unable to authenticate with Google. Please try email sign-in or check connection.');
-    } finally {
-      setIsLoading(false);
+      setIsGoogleLoading(false);
     }
   };
 
@@ -281,10 +285,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBackToLanding, onAuthSucce
               <button
                 type="button"
                 onClick={handleGoogleLogin}
-                disabled={isLoading}
+                disabled={isLoading || isGoogleLoading}
                 className="w-full inline-flex items-center justify-center gap-3 px-4 py-3 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] active:scale-[0.99] transition-all text-sm font-medium text-white cursor-pointer disabled:opacity-50 shadow-sm"
               >
-                {isLoading ? (
+                {isGoogleLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
                 ) : (
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -306,7 +310,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBackToLanding, onAuthSucce
                     />
                   </svg>
                 )}
-                <span>Continue with Google</span>
+                <span>{isGoogleLoading ? 'Connecting to Google...' : 'Continue with Google'}</span>
               </button>
 
               {/* Divider */}
@@ -374,7 +378,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBackToLanding, onAuthSucce
                       setName(e.target.value);
                       if (nameError) setNameError(null);
                     }}
-                    placeholder="Alex Rivera"
+                    placeholder="Jane Doe"
                     className={`w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border ${
                       nameError ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-white/30'
                     } text-sm text-white placeholder-zinc-500 outline-none transition-colors`}
