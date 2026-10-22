@@ -7,20 +7,24 @@ import { AuthPage } from './pages/AuthPage';
 import { AppShell } from './pages/AppShell';
 import { PlanReviewView } from './pages/PlanReviewView';
 import { ResearchRunView } from './pages/ResearchRunView';
-import { generateResearchPlan, checkBackendHealth } from './lib/api';
 
 function MainAppShell() {
   const { user, logout } = useAuth();
+  const isOAuthRedirect =
+    typeof window !== 'undefined' &&
+    (window.location.hash.includes('access_token') ||
+      window.location.search.includes('code='));
+
   const [showIntro, setShowIntro] = useState<boolean>(() => {
     // If returning from OAuth redirect, skip intro
-    if (window.location.hash.includes('access_token')) {
+    if (isOAuthRedirect) {
       sessionStorage.setItem('quorum_intro_seen', 'true');
       return false;
     }
     return !sessionStorage.getItem('quorum_intro_seen');
   });
   const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'app' | 'plan' | 'run'>(() => {
-    if (window.location.hash.includes('access_token')) {
+    if (isOAuthRedirect) {
       return 'app';
     }
     return 'landing';
@@ -29,11 +33,11 @@ function MainAppShell() {
   // Auto-switch to workspace when user signs in or completes OAuth redirect
   React.useEffect(() => {
     if (user) {
-      if (window.location.hash.includes('access_token') || currentView === 'auth') {
+      if (isOAuthRedirect || currentView === 'auth' || currentView === 'landing') {
         setCurrentView('app');
       }
     }
-  }, [user, currentView]);
+  }, [user, currentView, isOAuthRedirect]);
   const [forceReplay, setForceReplay] = useState<number>(0);
   const [activeResearchTopic, setActiveResearchTopic] = useState<string>(
     'Compare solid-state batteries vs lithium-ion for grid-scale energy storage'
@@ -41,7 +45,6 @@ function MainAppShell() {
   const [activeResearchDepth, setActiveResearchDepth] = useState<string>('standard');
   const [planSubquestions, setPlanSubquestions] = useState<string[]>([]);
   const [customSubquestions, setCustomSubquestions] = useState<string[] | undefined>(undefined);
-  const [isPlanLoading, setIsPlanLoading] = useState(false);
 
   // Restore topic and depth from shareable permalink if present
   React.useEffect(() => {
@@ -78,33 +81,13 @@ function MainAppShell() {
     setCurrentView('landing');
   };
 
-  const handleStartResearch = async (
+  const handleStartResearch = (
     query: string,
     options?: { image?: string | null; depth?: string }
   ) => {
     setActiveResearchTopic(query);
     const depth = options?.depth || activeResearchDepth;
     setActiveResearchDepth(depth);
-
-    // Try to get a plan from the backend first (HITL flow)
-    setIsPlanLoading(true);
-    try {
-      const isOnline = await checkBackendHealth();
-      if (isOnline) {
-        const subs = await generateResearchPlan(query, options?.image || null, depth);
-        if (subs && subs.length > 0) {
-          setPlanSubquestions(subs);
-          setCurrentView('plan');
-          setIsPlanLoading(false);
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('Plan generation failed, falling back to direct execution:', err);
-    }
-    setIsPlanLoading(false);
-
-    // Fallback: skip plan review, go directly to run
     setCustomSubquestions(undefined);
     setCurrentView('run');
   };
@@ -116,14 +99,6 @@ function MainAppShell() {
 
   return (
     <div className="min-h-screen bg-[#09090b] text-[#fafafa] selection:bg-white/20 selection:text-white">
-      {/* Full-screen loading overlay for plan generation */}
-      {isPlanLoading && (
-        <div className="fixed inset-0 z-[100] bg-[#09090b]/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
-          <div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-zinc-300 font-mono">Planner Agent decomposing your topic...</p>
-          <p className="text-xs text-zinc-500">This usually takes 3-5 seconds</p>
-        </div>
-      )}
 
       {showIntro ? (
         <IntroScreen
