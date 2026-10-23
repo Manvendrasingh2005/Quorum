@@ -24,9 +24,17 @@ import {
 import { Sidebar, NavItem } from '../components/layout/Sidebar';
 import { TopBar } from '../components/layout/TopBar';
 import { fetchUserResearchFromSupabase, SavedResearch } from '../lib/supabase';
+import {
+  getLocalResearchCache,
+  syncSupabaseIntoLocalCache,
+  findCachedResearch,
+} from '../lib/researchCache';
 
 interface AppShellProps {
-  onStartResearch: (query: string, options?: { image?: string | null; depth?: string }) => void;
+  onStartResearch: (
+    query: string,
+    options?: { image?: string | null; depth?: string; savedResult?: SavedResearch | null }
+  ) => void;
   onSignOut: () => void;
 }
 
@@ -52,7 +60,13 @@ export const AppShell: React.FC<AppShellProps> = ({
     if (currentTab === 'history' || currentTab === 'reports') {
       setLoadingHistory(true);
       fetchUserResearchFromSupabase().then(({ data }) => {
-        setSupabaseHistory(data || []);
+        if (data && data.length > 0) {
+          setSupabaseHistory(data);
+          syncSupabaseIntoLocalCache(data);
+        } else {
+          const local = getLocalResearchCache();
+          setSupabaseHistory(local);
+        }
         setLoadingHistory(false);
       });
     }
@@ -440,7 +454,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                   supabaseHistory.map((item) => (
                     <div
                       key={item.id}
-                      onClick={() => onStartResearch(item.topic)}
+                      onClick={() => onStartResearch(item.topic, { savedResult: item })}
                       className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-white/15 transition-all flex items-center justify-between cursor-pointer"
                     >
                       <div className="space-y-1">
@@ -484,7 +498,10 @@ export const AppShell: React.FC<AppShellProps> = ({
                   ].map((item, i) => (
                     <div
                       key={i}
-                      onClick={() => onStartResearch(item.title)}
+                      onClick={() => {
+                        const cached = findCachedResearch(item.title);
+                        onStartResearch(item.title, cached ? { savedResult: cached } : undefined);
+                      }}
                       className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-white/15 transition-all flex items-center justify-between cursor-pointer"
                     >
                       <div className="space-y-1">
@@ -520,12 +537,16 @@ export const AppShell: React.FC<AppShellProps> = ({
                   'Fusion Power Grid Commercialization Timeline',
                   'GLP-1 Weight Regulation & Cardiovascular Outcomes',
                   'Superconducting Qubit Coherence Limits',
-                ].map((report, i) => (
-                  <div
-                    key={i}
-                    onClick={() => onStartResearch(report)}
-                    className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] hover:border-white/15 transition-all space-y-3 cursor-pointer"
-                  >
+                ].map((report, i) => {
+                  const matched =
+                    supabaseHistory.find((h) => h.topic.toLowerCase() === report.toLowerCase()) ||
+                    findCachedResearch(report);
+                  return (
+                    <div
+                      key={i}
+                      onClick={() => onStartResearch(report, matched ? { savedResult: matched } : undefined)}
+                      className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] hover:border-white/15 transition-all space-y-3 cursor-pointer"
+                    >
                     <div className="flex items-center justify-between">
                       <span className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
                         <FileText className="w-4 h-4" />
@@ -539,7 +560,8 @@ export const AppShell: React.FC<AppShellProps> = ({
                       Cross-checked by Critic agent with 15+ primary academic sources.
                     </p>
                   </div>
-                ))}
+                );
+              })}
               </div>
             </div>
           )}
