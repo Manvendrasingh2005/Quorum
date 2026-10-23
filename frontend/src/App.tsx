@@ -7,6 +7,7 @@ import { AuthPage } from './pages/AuthPage';
 import { AppShell } from './pages/AppShell';
 import { PlanReviewView } from './pages/PlanReviewView';
 import { ResearchRunView } from './pages/ResearchRunView';
+import { SavedResearch } from './lib/supabase';
 
 function MainAppShell() {
   const { user, logout } = useAuth();
@@ -45,6 +46,7 @@ function MainAppShell() {
   const [activeResearchDepth, setActiveResearchDepth] = useState<string>('standard');
   const [planSubquestions, setPlanSubquestions] = useState<string[]>([]);
   const [customSubquestions, setCustomSubquestions] = useState<string[] | undefined>(undefined);
+  const [activeSavedResearch, setActiveSavedResearch] = useState<SavedResearch | null>(null);
 
   // Restore topic and depth from shareable permalink if present
   React.useEffect(() => {
@@ -83,12 +85,13 @@ function MainAppShell() {
 
   const handleStartResearch = (
     query: string,
-    options?: { image?: string | null; depth?: string }
+    options?: { image?: string | null; depth?: string; savedResult?: SavedResearch | null }
   ) => {
     setActiveResearchTopic(query);
     const depth = options?.depth || activeResearchDepth;
     setActiveResearchDepth(depth);
     setCustomSubquestions(undefined);
+    setActiveSavedResearch(options?.savedResult || null);
     setCurrentView('run');
   };
 
@@ -134,11 +137,14 @@ function MainAppShell() {
           topic={activeResearchTopic}
           customSubquestions={customSubquestions}
           depth={activeResearchDepth}
+          savedResult={activeSavedResearch}
           onNewResearch={() => {
+            setActiveSavedResearch(null);
             setCustomSubquestions(undefined);
             setCurrentView('app');
           }}
           onBackToWorkspace={() => {
+            setActiveSavedResearch(null);
             setCustomSubquestions(undefined);
             setCurrentView('app');
           }}
