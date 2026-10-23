@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Search,
   FileText,
+  Compass,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -216,28 +217,46 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBackToLanding, onAuthSucce
           </div>
         </div>
 
-        {/* Bottom: Social Proof Footer */}
-        <div className="relative z-10 pt-6 border-t border-white/[0.06] flex items-center gap-3">
-          <div className="flex -space-x-2">
-            <img
-              className="w-7 h-7 rounded-full border border-zinc-900 object-cover"
-              src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=faces"
-              alt="User avatar"
-            />
-            <img
-              className="w-7 h-7 rounded-full border border-zinc-900 object-cover"
-              src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=faces"
-              alt="User avatar"
-            />
-            <img
-              className="w-7 h-7 rounded-full border border-zinc-900 object-cover"
-              src="https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=100&h=100&fit=crop&crop=faces"
-              alt="User avatar"
-            />
+        {/* Bottom: Authentic Verification & Swarm Architecture */}
+        <div className="relative z-10 pt-6 border-t border-white/[0.06] flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex -space-x-1.5">
+              <div
+                className="w-7 h-7 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-sm"
+                title="Planner Agent"
+              >
+                <Compass className="w-3.5 h-3.5" />
+              </div>
+              <div
+                className="w-7 h-7 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-sm"
+                title="Researcher Agent"
+              >
+                <Search className="w-3.5 h-3.5" />
+              </div>
+              <div
+                className="w-7 h-7 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-sm"
+                title="Critic Agent"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+              </div>
+              <div
+                className="w-7 h-7 rounded-full bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400 shadow-sm"
+                title="Writer Agent"
+              >
+                <FileText className="w-3.5 h-3.5" />
+              </div>
+            </div>
+
+            <div className="text-left space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-white">Autonomous Swarm Engine</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              </div>
+              <p className="text-[11px] text-zinc-400 font-mono">
+                100% Primary Sources • Powered by Gemini & Tavily
+              </p>
+            </div>
           </div>
-          <span className="text-xs text-zinc-400 font-medium">
-            Trusted by research teams, founders, and analysts
-          </span>
         </div>
       </div>
 
