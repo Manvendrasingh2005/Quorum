@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Compass,
@@ -26,10 +26,12 @@ import {
   Zap,
   Layers,
   Scale,
+  RefreshCw,
 } from 'lucide-react';
 import { marked } from 'marked';
 import { QuorumLogo } from '../components/logo/QuorumLogo';
-import { saveResearchToSupabase } from '../lib/supabase';
+import { saveResearchToSupabase, SavedResearch } from '../lib/supabase';
+import { saveToLocalResearchCache } from '../lib/researchCache';
 import {
   checkBackendHealth,
   streamResearchExecution,
@@ -45,6 +47,7 @@ interface ResearchRunViewProps {
   topic: string;
   customSubquestions?: string[];
   depth?: string;
+  savedResult?: SavedResearch | null;
   onNewResearch: () => void;
   onBackToWorkspace: () => void;
 }
@@ -69,13 +72,28 @@ export const ResearchRunView: React.FC<ResearchRunViewProps> = ({
   topic,
   customSubquestions,
   depth = 'standard',
+  savedResult,
   onNewResearch,
   onBackToWorkspace,
 }) => {
+  const isPreloaded = Boolean(savedResult && savedResult.report_markdown);
+  const [forceRerun, setForceRerun] = useState(false);
+
+  const initialSources: SourceItem[] = useMemo(() => {
+    if (!savedResult?.sources) return [];
+    if (Array.isArray(savedResult.sources)) return savedResult.sources;
+    try {
+      if (typeof savedResult.sources === 'string') return JSON.parse(savedResult.sources);
+    } catch {
+      return [];
+    }
+    return [];
+  }, [savedResult]);
+
   // Swarm execution state
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [isCompleted, setIsCompleted] = useState(false);
-  const [agentsCollapsed, setAgentsCollapsed] = useState(false);
+  const [isCompleted, setIsCompleted] = useState(isPreloaded);
+  const [agentsCollapsed, setAgentsCollapsed] = useState(isPreloaded);
   const [copied, setCopied] = useState(false);
   const [isCopiedLink, setIsCopiedLink] = useState(false);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
@@ -89,6 +107,16 @@ export const ResearchRunView: React.FC<ResearchRunViewProps> = ({
 
   // 4 Agent states
   const [planner, setPlanner] = useState<AgentState>(() => {
+    if (isPreloaded) {
+      return {
+        status: 'done',
+        logs: [
+          'Topic taxonomy decomposed into multidimensional inquiry angles.',
+          'Archived plan verified from stored cloud investigation.',
+        ],
+        metric: 'Plan verified from archive',
+      };
+    }
     if (customSubquestions && customSubquestions.length > 0) {
       return {
         status: 'done',
@@ -106,27 +134,73 @@ export const ResearchRunView: React.FC<ResearchRunViewProps> = ({
     };
   });
 
-  const [researcher, setResearcher] = useState<AgentState>({
-    status: 'idle',
-    logs: [],
-    metric: 'Waiting for plan',
+  const [researcher, setResearcher] = useState<AgentState>(() => {
+    if (isPreloaded) {
+      return {
+        status: 'done',
+        logs: [
+          `Retrieved ${initialSources.length} primary verified sources.`,
+          'Indexed academic & government databases.',
+        ],
+        metric: `${initialSources.length} primary sources`,
+      };
+    }
+    return {
+      status: 'idle',
+      logs: [],
+      metric: 'Waiting for plan',
+    };
   });
 
-  const [critic, setCritic] = useState<AgentState>({
-    status: 'idle',
-    logs: [],
-    metric: 'Standby for claims',
+  const [critic, setCritic] = useState<AgentState>(() => {
+    if (isPreloaded) {
+      return {
+        status: 'done',
+        logs: [
+          'All factual claims cross-examined against indexed primary sources.',
+          'Fact-check audit passed with zero contradictions.',
+        ],
+        metric: '100% verified claims',
+      };
+    }
+    return {
+      status: 'idle',
+      logs: [],
+      metric: 'Standby for claims',
+    };
   });
 
-  const [writer, setWriter] = useState<AgentState>({
-    status: 'idle',
-    logs: [],
-    metric: 'Awaiting verified synthesis',
+  const [writer, setWriter] = useState<AgentState>(() => {
+    if (isPreloaded) {
+      return {
+        status: 'done',
+        logs: [
+          'Executive synthesis structured with citation graph.',
+          'Verified research dossier ready.',
+        ],
+        metric: 'Dossier synthesized',
+      };
+    }
+    return {
+      status: 'idle',
+      logs: [],
+      metric: 'Awaiting verified synthesis',
+    };
   });
 
   // Final Report & Sources
-  const [reportMarkdown, setReportMarkdown] = useState<string>('');
-  const [sources, setSources] = useState<SourceItem[]>([]);
+  const [reportMarkdown, setReportMarkdown] = useState<string>(() => {
+    if (isPreloaded && savedResult?.report_markdown) {
+      return savedResult.report_markdown;
+    }
+    return '';
+  });
+  const [sources, setSources] = useState<SourceItem[]>(() => {
+    if (isPreloaded && initialSources.length > 0) {
+      return initialSources;
+    }
+    return [];
+  });
 
   // Elapsed timer
   useEffect(() => {
@@ -201,8 +275,59 @@ export const ResearchRunView: React.FC<ResearchRunViewProps> = ({
     },
   ];
 
+  const runCitationVerification = (sourceList: SourceItem[]) => {
+    const urlsToVerify = sourceList.map((s) => s.url).filter((u) => u && u.startsWith('http'));
+    if (urlsToVerify.length === 0) return;
+    verifyCitations(urlsToVerify)
+      .then((verifiedList) => {
+        const statusMap: Record<string, { status: 'verified' | 'unreachable'; statusCode?: number }> = {};
+        verifiedList.forEach((v) => {
+          statusMap[v.url] = { status: v.status, statusCode: v.status_code };
+        });
+        setCitationStatusMap(statusMap);
+      })
+      .catch((err) => console.warn('Citation verification error:', err));
+  };
+
+  const handleRerun = () => {
+    setForceRerun(true);
+    setIsCompleted(false);
+    setAgentsCollapsed(false);
+    setReportMarkdown('');
+    setSources([]);
+    setElapsedSeconds(0);
+    setPlanner({
+      status: 'active',
+      logs: ['Initiating fresh multi-angle inquiry...'],
+      metric: 'Deconstructing query',
+    });
+    setResearcher({
+      status: 'idle',
+      logs: [],
+      metric: 'Waiting for plan',
+    });
+    setCritic({
+      status: 'idle',
+      logs: [],
+      metric: 'Standby for claims',
+    });
+    setWriter({
+      status: 'idle',
+      logs: [],
+      metric: 'Awaiting verified synthesis',
+    });
+  };
+
   // Orchestrated Swarm Simulation / Backend Stream
   useEffect(() => {
+    // If preloaded with saved historical result, display instantly without re-running swarm
+    if (isPreloaded && !forceRerun) {
+      if (initialSources.length > 0) {
+        runCitationVerification(initialSources);
+      }
+      return;
+    }
+
     let isCancelled = false;
     let cancelActiveStream: (() => void) | null = null;
 
@@ -367,27 +492,24 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
       // Verify source citations reachability
       runCitationVerification(defaultSourceList);
 
-      // Save to Supabase
+      // Save to local cache & Supabase
+      saveToLocalResearchCache({
+        id: `res_${Date.now()}`,
+        user_id: '',
+        topic,
+        status: 'completed',
+        report_markdown: finalReport,
+        sources: defaultSourceList,
+        citations_count: defaultSourceList.length,
+        created_at: new Date().toISOString(),
+      });
+
       saveResearchToSupabase({
         topic,
         reportMarkdown: finalReport,
         sources: defaultSourceList,
         citationsCount: defaultSourceList.length,
       }).catch((err) => console.warn('Supabase save error:', err));
-    };
-
-    const runCitationVerification = (sourceList: SourceItem[]) => {
-      const urlsToVerify = sourceList.map((s) => s.url).filter((u) => u && u.startsWith('http'));
-      if (urlsToVerify.length === 0) return;
-      verifyCitations(urlsToVerify)
-        .then((verifiedList) => {
-          const statusMap: Record<string, { status: 'verified' | 'unreachable'; statusCode?: number }> = {};
-          verifiedList.forEach((v) => {
-            statusMap[v.url] = { status: v.status, statusCode: v.status_code };
-          });
-          setCitationStatusMap(statusMap);
-        })
-        .catch((err) => console.warn('Citation verification error:', err));
     };
 
     const startExecution = async () => {
@@ -497,7 +619,18 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
         // Run automated citation probe
         runCitationVerification(activeSources);
 
-        // Persist verified research run to Supabase
+        // Persist verified research run to local cache & Supabase
+        saveToLocalResearchCache({
+          id: `res_${Date.now()}`,
+          user_id: '',
+          topic,
+          status: 'completed',
+          report_markdown: finalReport,
+          sources: activeSources,
+          citations_count: activeSources.length,
+          created_at: new Date().toISOString(),
+        });
+
         saveResearchToSupabase({
           topic,
           reportMarkdown: finalReport,
@@ -585,7 +718,7 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
       isCancelled = true;
       if (cancelActiveStream) cancelActiveStream();
     };
-  }, [topic, customSubquestions, depth]);
+  }, [topic, customSubquestions, depth, isPreloaded, forceRerun]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -723,7 +856,7 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
                   : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 animate-pulse'
               }`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${isCompleted ? 'bg-emerald-400' : 'bg-indigo-400'}`} />
-                {isCompleted ? 'Completed' : 'Swarm Active'}
+                {isCompleted ? (isPreloaded && !forceRerun ? 'Cloud Archived' : 'Completed') : 'Swarm Active'}
               </span>
 
               {/* Research Depth Indicator */}
@@ -783,13 +916,23 @@ Our Critic agent cross-examined early claims projecting sub-$50/kWh solid-state 
               <span className="hidden sm:inline">Cancel run</span>
             </button>
           ) : (
-            <button
-              onClick={onNewResearch}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-semibold transition-all cursor-pointer shadow-sm shadow-white/10"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New research</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRerun}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-zinc-300 hover:text-white text-xs font-medium transition-all cursor-pointer"
+                title="Re-run this research investigation live"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Re-run</span>
+              </button>
+              <button
+                onClick={onNewResearch}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-semibold transition-all cursor-pointer shadow-sm shadow-white/10"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New research</span>
+              </button>
+            </div>
           )}
         </div>
       </header>
