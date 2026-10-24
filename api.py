@@ -36,15 +36,21 @@ app = FastAPI(title="Quorum API")
 # Telemetry and Structured Request Logging Middleware
 app.add_middleware(TelemetryMiddleware)
 
-# Allow CORS for the Vite frontend (which usually runs on localhost:5173)
+# Configure CORS origins, supporting local dev and production domains via ALLOWED_ORIGINS
+raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+]
+if raw_origins:
+    allowed_origins.extend([o.strip() for o in raw_origins.split(",") if o.strip()])
+else:
+    allowed_origins.append("*")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "*",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
